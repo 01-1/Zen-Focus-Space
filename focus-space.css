@@ -1,0 +1,188 @@
+/* Focus Space — styling for the workspace-indicator stopwatch. */
+
+/* Match the dimmed look of the space name the timer sits beside, and cancel the
+   indicator's flex `gap` ahead of the timer so the separator sits a single space
+   (the leading NBSP in the label text) after the name — matching the original
+   inline spacing rather than a full gap. */
+.zen-current-workspace-indicator .zen-focus-space-timer {
+  opacity: 0.7;
+  margin-inline-start: calc(-1 * var(--indicator-gap)) !important;
+  white-space: nowrap;
+}
+
+/* Zen lets the space name grow (flex: 1) to fill the indicator, which would
+       shove the timer to the far end of the row. Pin the name to its content width
+       so the timer sits right beside it; the actions buttons still anchor to the
+       right via their own `margin-left: auto`. */
+:root:not([zen-renaming-tab="true"])
+  .zen-current-workspace-indicator:has(> .zen-focus-space-timer)
+  .zen-current-workspace-indicator-name {
+  flex: 0 1 auto !important;
+}
+
+/* Both the toggle and the "..." actions carry `.zen-workspaces-actions`
+       (margin-left: auto). The toggle comes first, so its auto margin absorbs the
+       row's free space and pushes the pair to the right edge; the trailing "..."
+       then needs a negative margin to cancel its own competing auto margin and
+       swallow the flex `gap` between the two, so it sits flush after the toggle. */
+.zen-current-workspace-indicator
+  .zen-focus-space-timer-toggle
+  ~ .zen-workspaces-actions {
+  margin-left: calc(-1 * var(--indicator-gap)) !important;
+}
+
+/* Hide the timer whenever Zen hides the indicator's other contents: when the
+       sidebar is collapsed (Zen hides the space name) and while renaming a space
+       (Zen hides .zen-workspaces-actions). The latter also keeps the timer from
+       crowding/wrapping against the rename field. */
+#navigator-toolbox:not([zen-sidebar-expanded="true"]) .zen-focus-space-timer,
+:root[zen-renaming-tab="true"] .zen-focus-space-timer {
+  display: none !important;
+}
+
+/* --- Daily time-ratio bar (sidebar foot) ---------------------------------- */
+
+/* Sits just above the space-icon strip and spans the sidebar width (align-self
+   covers a flex parent; a vertical XUL toolbar stretches children by default). */
+.zen-focus-space-ratio {
+  position: relative;
+  display: block;
+  align-self: stretch;
+  margin: 5px 8px 3px;
+  box-sizing: border-box;
+}
+
+/* The stacked proportion bar. The faint track shows through the segment `gap`s,
+   giving hairline separators that keep similarly-coloured spaces distinct. */
+.zen-focus-space-ratio .zen-fs-bar {
+  display: flex;
+  gap: 1.5px;
+  height: 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.zen-focus-space-ratio .zen-fs-seg {
+  min-width: 1px;
+  cursor: pointer;
+}
+
+/* Hover flyout above the bar. The wrapper's transparent bottom padding bridges
+   the gap to the bar so moving the pointer into the legend keeps it open. */
+.zen-focus-space-ratio .zen-fs-legend {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  display: none;
+  padding-bottom: 8px;
+  z-index: 2147483647;
+}
+
+.zen-focus-space-ratio:hover .zen-fs-legend {
+  display: block;
+}
+
+.zen-focus-space-ratio .zen-fs-legend-card {
+  min-width: 210px;
+  max-width: 280px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: var(--arrowpanel-background, Menu);
+  color: var(--arrowpanel-color, MenuText);
+  border: 1px solid var(--arrowpanel-border-color, color-mix(in srgb, currentColor 22%, transparent));
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+}
+
+.zen-focus-space-ratio .zen-fs-legend-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+/* Period toggle: Today · Week · Month */
+.zen-focus-space-ratio .zen-fs-periods {
+  display: flex;
+  gap: 2px;
+}
+
+.zen-focus-space-ratio .zen-fs-period {
+  padding: 1px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85em;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.zen-focus-space-ratio .zen-fs-period:hover {
+  opacity: 0.9;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.zen-focus-space-ratio .zen-fs-period[active] {
+  opacity: 1;
+  font-weight: 600;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.zen-focus-space-ratio .zen-fs-legend-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.zen-focus-space-ratio .zen-fs-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 3px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.zen-focus-space-ratio .zen-fs-row:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.zen-focus-space-ratio .zen-fs-swatch {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.zen-focus-space-ratio .zen-fs-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Fixed-width, right-aligned columns so the % and time line up no matter how
+   wide a row's values are (e.g. "10h 50m" vs "6h 31m"). The name flexes to
+   absorb the slack. */
+.zen-focus-space-ratio .zen-fs-pct {
+  flex: 0 0 2.8em;
+  text-align: right;
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
+}
+
+.zen-focus-space-ratio .zen-fs-time {
+  flex: 0 0 5.5em;
+  text-align: right;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.zen-focus-space-ratio .zen-fs-legend-empty {
+  opacity: 0.6;
+  font-size: 0.9em;
+  padding: 2px 0;
+}
