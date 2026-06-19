@@ -43,13 +43,23 @@
 /* --- Daily time-ratio bar (sidebar foot) ---------------------------------- */
 
 /* Sits just above the space-icon strip and spans the sidebar width (align-self
-   covers a flex parent; a vertical XUL toolbar stretches children by default). */
+   covers a flex parent; a vertical XUL toolbar stretches children by default).
+
+   `-moz-window-dragging: no-drag` is essential, not cosmetic: Zen marks the
+   sidebar/tab bars as draggable window regions (`-moz-window-dragging: drag`),
+   which our bar and flyout inherit. In a drag region a mousedown starts a window
+   move instead of being delivered as a click, so on Windows the Today/Week/Month
+   buttons (and the bar segments) never fire — the flyout just opens on hover and
+   closes again with nothing happening. macOS hit-tests drag regions differently,
+   so it slips through there. Every interactive Zen control opts out the same way;
+   no-drag propagates to descendants, covering the absolutely-positioned flyout. */
 .zen-focus-space-ratio {
   position: relative;
   display: block;
   align-self: stretch;
   margin: 5px 8px 3px;
   box-sizing: border-box;
+  -moz-window-dragging: no-drag;
 }
 
 /* The stacked proportion bar. The faint track shows through the segment `gap`s,
@@ -68,15 +78,28 @@
   cursor: pointer;
 }
 
-/* Hover flyout above the bar. The wrapper's transparent bottom padding bridges
-   the gap to the bar so moving the pointer into the legend keeps it open. */
+/* Flyout above the bar, shown on hover. The card floats 8px above the bar; the
+   wrapper's transparent padding bridges that gap so the pointer never leaves the
+   hovered region moving from bar to card. The 2px overlap into the bar (bottom +
+   the matching padding) is deliberate: on fractional-DPI displays (Windows at
+   125/150/175%) the bar and legend edges snap to device pixels independently, and
+   without overlap a sub-pixel dead zone opens at the seam — the pointer touches
+   neither element, `:hover` drops, the legend `display:none`s, and it can't catch
+   the pointer to reopen. Overlapping the hot areas past any rounding error closes
+   that gap, so a plain `:hover` stays robust without any JS open/close logic.
+   (macOS uses integer scaling, so the seam is exact and it never reproduced.) */
 .zen-focus-space-ratio .zen-fs-legend {
   position: absolute;
-  bottom: 100%;
+  bottom: calc(100% - 2px);
   left: 0;
   display: none;
-  padding-bottom: 8px;
+  padding-bottom: 10px;
   z-index: 2147483647;
+  /* Opt out of window-dragging here too, not just on the container: the drag
+     region is computed by painted area, and this flyout is absolutely positioned
+     *outside* the container's box, so the container's no-drag doesn't cover it.
+     Without this the Today/Week/Month buttons stay unclickable on Windows. */
+  -moz-window-dragging: no-drag;
 }
 
 .zen-focus-space-ratio:hover .zen-fs-legend {
@@ -90,7 +113,11 @@
   border-radius: 8px;
   background: var(--arrowpanel-background, Menu);
   color: var(--arrowpanel-color, MenuText);
-  border: 1px solid var(--arrowpanel-border-color, color-mix(in srgb, currentColor 22%, transparent));
+  border: 1px solid
+    var(
+      --arrowpanel-border-color,
+      color-mix(in srgb, currentColor 22%, transparent)
+    );
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
 }
 

@@ -36,8 +36,14 @@ const DEFAULT_VIEW = "today";
 
 // Used only for spaces with no custom theme color of their own.
 const FALLBACK_PALETTE = [
-  "#7F77DD", "#1D9E75", "#D85A30", "#378ADD",
-  "#EF9F27", "#D4537E", "#639922", "#888780",
+  "#7F77DD",
+  "#1D9E75",
+  "#D85A30",
+  "#378ADD",
+  "#EF9F27",
+  "#D4537E",
+  "#639922",
+  "#888780",
 ];
 
 // --- session stopwatch state -------------------------------------------------
@@ -119,7 +125,9 @@ function el(tag, attrs, ...children) {
     if (child == null) {
       continue;
     }
-    node.append(child.nodeType ? child : document.createTextNode(String(child)));
+    node.append(
+      child.nodeType ? child : document.createTextNode(String(child)),
+    );
   }
   return node;
 }
@@ -155,7 +163,7 @@ function spaceColor(workspace, index) {
   const colors = workspace && workspace.theme && workspace.theme.gradientColors;
   if (Array.isArray(colors) && colors.length) {
     const dot =
-      colors.find(color => color && color.isPrimary) ||
+      colors.find((color) => color && color.isPrimary) ||
       colors[Math.floor(colors.length / 2)];
     const c = dot && dot.c;
     if (Array.isArray(c) && c.length >= 3) {
@@ -410,6 +418,7 @@ function ensureButton(indicator) {
 // this way — swapping in addEventListener would quietly regress global reach.
 const KEYSET_ID = "zen-focus-space-keyset";
 const KEY_ID = "zen-focus-space-pause-key";
+const COMMAND_ID = "zen-focus-space-pause-command";
 // The default shortcut. Also hard-coded in preferences.json (defaultValue +
 // placeholder) and named in the README / theme.json blurb — JSON can't import
 // this constant, so keep those copies in sync by hand if it ever changes.
@@ -418,10 +427,17 @@ const DEFAULT_SHORTCUT = "F9";
 // Combo tokens → the values a XUL <key> understands. Modifiers stay literal (no
 // accel remap), so the binding matches exactly what the user typed.
 const MODIFIER_TOKENS = {
-  ctrl: "control", control: "control",
-  alt: "alt", option: "alt", opt: "alt",
+  ctrl: "control",
+  control: "control",
+  alt: "alt",
+  option: "alt",
+  opt: "alt",
   shift: "shift",
-  cmd: "meta", command: "meta", meta: "meta", win: "meta", super: "meta",
+  cmd: "meta",
+  command: "meta",
+  meta: "meta",
+  win: "meta",
+  super: "meta",
   accel: "accel",
 };
 
@@ -429,11 +445,30 @@ const MODIFIER_TOKENS = {
 // Function keys are the only named keys worth binding a pause toggle to (the
 // default is F9); any other printable key goes through key="x" + a modifier.
 const NAMED_KEYCODES = {
-  f1: "VK_F1", f2: "VK_F2", f3: "VK_F3", f4: "VK_F4", f5: "VK_F5",
-  f6: "VK_F6", f7: "VK_F7", f8: "VK_F8", f9: "VK_F9", f10: "VK_F10",
-  f11: "VK_F11", f12: "VK_F12", f13: "VK_F13", f14: "VK_F14", f15: "VK_F15",
-  f16: "VK_F16", f17: "VK_F17", f18: "VK_F18", f19: "VK_F19", f20: "VK_F20",
-  f21: "VK_F21", f22: "VK_F22", f23: "VK_F23", f24: "VK_F24",
+  f1: "VK_F1",
+  f2: "VK_F2",
+  f3: "VK_F3",
+  f4: "VK_F4",
+  f5: "VK_F5",
+  f6: "VK_F6",
+  f7: "VK_F7",
+  f8: "VK_F8",
+  f9: "VK_F9",
+  f10: "VK_F10",
+  f11: "VK_F11",
+  f12: "VK_F12",
+  f13: "VK_F13",
+  f14: "VK_F14",
+  f15: "VK_F15",
+  f16: "VK_F16",
+  f17: "VK_F17",
+  f18: "VK_F18",
+  f19: "VK_F19",
+  f20: "VK_F20",
+  f21: "VK_F21",
+  f22: "VK_F22",
+  f23: "VK_F23",
+  f24: "VK_F24",
 };
 
 function readShortcutPref() {
@@ -480,8 +515,10 @@ function parseShortcut(str) {
   // A printable key must pair with Ctrl/Alt/Meta; a bare (or Shift-only) one
   // would steal the keystroke from text entry, so it's disabled instead.
   const hasStrongMod =
-    mods.includes("control") || mods.includes("alt") ||
-    mods.includes("meta") || mods.includes("accel");
+    mods.includes("control") ||
+    mods.includes("alt") ||
+    mods.includes("meta") ||
+    mods.includes("accel");
   if ([...keyToken].length !== 1 || !hasStrongMod) {
     return null;
   }
@@ -515,6 +552,20 @@ function buildShortcutKey() {
   const keyset = document.createXULElement("keyset");
   keyset.id = KEYSET_ID;
 
+  // A <key> is only honoured once it carries a command-handler attribute. The
+  // obvious choice — an inline oncommand="" — is an inline event handler, which
+  // the chrome CSP (script-src-attr, no 'unsafe-inline') blocks on stricter
+  // builds: the attribute is rejected when the key is parsed, the binding dies,
+  // and — because this runs at startup before the pref observers register —
+  // it can take the bar's reactivity down with it. Point the key at a real
+  // <command> node instead and hang the toggle off its "command" event. This
+  // is the CSP-safe pattern Zen's own ZenKeyboardShortcuts uses; the command
+  // lives in the keyset so removeShortcutKey() tears it down with the rest.
+  const command = document.createXULElement("command");
+  command.id = COMMAND_ID;
+  command.addEventListener("command", togglePause);
+  keyset.appendChild(command);
+
   const keyEl = document.createXULElement("key");
   keyEl.id = KEY_ID;
   if (parsed.keycode) {
@@ -525,11 +576,7 @@ function buildShortcutKey() {
   if (parsed.modifiers) {
     keyEl.setAttribute("modifiers", parsed.modifiers);
   }
-  // A <key> is only honoured once it carries a command-handler attribute; the
-  // toggle itself runs from the "command" listener, so this oncommand is just
-  // the required no-op that gets the binding registered.
-  keyEl.setAttribute("oncommand", ";");
-  keyEl.addEventListener("command", togglePause);
+  keyEl.setAttribute("command", COMMAND_ID);
   keyset.appendChild(keyEl);
 
   // Sit beside the main keyset, isolated from Zen's own bindings.
@@ -630,7 +677,10 @@ function rebuildBar(spaces, minutes, totalMinutes) {
 
   // Reflect the active period in the toggle and the empty-state wording.
   for (const btn of periodButtonsEl.children) {
-    btn.toggleAttribute("active", btn.getAttribute("data-period") === viewPeriod);
+    btn.toggleAttribute(
+      "active",
+      btn.getAttribute("data-period") === viewPeriod,
+    );
   }
   legendEmptyEl.textContent = `No focus time yet ${periodPhrase(viewPeriod)}`;
 
@@ -656,11 +706,25 @@ function rebuildBar(spaces, minutes, totalMinutes) {
     seg.addEventListener("click", () => switchTo(workspace));
     barEl.append(seg);
 
-    const swatch = el("span", { class: "zen-fs-swatch", style: `background:${color};` });
+    const swatch = el("span", {
+      class: "zen-fs-swatch",
+      style: `background:${color};`,
+    });
     const nameEl = el("span", { class: "zen-fs-name" }, legendName(workspace));
-    const pctEl = el("span", { class: "zen-fs-pct" }, `${Math.round((mins / totalMinutes) * 100)}%`);
+    const pctEl = el(
+      "span",
+      { class: "zen-fs-pct" },
+      `${Math.round((mins / totalMinutes) * 100)}%`,
+    );
     const timeEl = el("span", { class: "zen-fs-time" }, formatMinutes(mins));
-    const row = el("div", { class: "zen-fs-row" }, swatch, nameEl, pctEl, timeEl);
+    const row = el(
+      "div",
+      { class: "zen-fs-row" },
+      swatch,
+      nameEl,
+      pctEl,
+      timeEl,
+    );
     row.addEventListener("click", () => switchTo(workspace));
     legendRowsEl.append(row);
   });
@@ -699,7 +763,9 @@ function renderBar() {
     viewPeriod +
     "|" +
     spaces
-      .map((w, i) => `${w.uuid}:${w.name}:${spaceColor(w, i)}:${minutes[w.uuid]}`)
+      .map(
+        (w, i) => `${w.uuid}:${w.name}:${spaceColor(w, i)}:${minutes[w.uuid]}`,
+      )
       .join("|");
   if (signature === lastSignature) {
     return;
@@ -804,7 +870,9 @@ function resolveWeekStartDow(pref) {
   try {
     const locale = new Intl.Locale(Services.locale.appLocaleAsBCP47);
     const info =
-      typeof locale.getWeekInfo === "function" ? locale.getWeekInfo() : locale.weekInfo;
+      typeof locale.getWeekInfo === "function"
+        ? locale.getWeekInfo()
+        : locale.weekInfo;
     const firstDay = info && info.firstDay;
     if (firstDay === 7) {
       return 0;
@@ -907,10 +975,17 @@ startupFinish(() => {
 
   mountBar();
 
-  buildShortcutKey();
-
+  // Register the pref observers before building the (optional) shortcut key, and
+  // isolate that build: it touches more of the platform than anything else here,
+  // so should it ever fail — a stricter chrome CSP, a XUL change — the time-ratio
+  // bar must still wire up its observers and stay reactive.
   for (const [pref, handler] of PREF_OBSERVERS) {
     Services.prefs.addObserver(pref, handler);
+  }
+  try {
+    buildShortcutKey();
+  } catch (e) {
+    console.error("[focus-space] pause shortcut setup failed:", e);
   }
   flushTimer = setInterval(flush, FLUSH_MS);
 
