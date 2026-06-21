@@ -30,9 +30,14 @@ First, install the latest version of [Sine](https://github.com/CosmoCreeper/Sine
 
 ### From a GitHub repo
 
+Focus Space is a JavaScript mod, and Sine blocks JS from outside its official store by default — so until it's listed on the marketplace, allow that first (a one-time toggle):
+
 1. Open Zen **Settings → Sine Mods**.
-2. In the **“or, add your own locally from a GitHub repo”** field, enter `Zebeqo/Zen-Focus-Space`.
-3. Click **Install**.
+2. Click the **gear (⚙️)** icon to the right of the GitHub-repo **Install** button, tick **“Enable installing JS from unofficial sources”**, then **Close**.
+3. In the **“or, add your own locally from a GitHub repo”** field, enter `Zebeqo/Zen-Focus-Space`.
+4. Click **Install**.
+
+Sine flags that toggle *“use at your own risk”* because it lets any repo run code in the browser — Focus Space's whole source lives in this repo, so you can review exactly what it does first.
 
 ### From the Sine marketplace
 
