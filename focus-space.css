@@ -213,3 +213,176 @@
   font-size: 0.9em;
   padding: 2px 0;
 }
+
+/* "Sessions" button in the legend head, opening the editor panel. */
+.zen-focus-space-ratio .zen-fs-edit {
+  padding: 1px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85em;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.zen-focus-space-ratio .zen-fs-edit:hover {
+  opacity: 0.9;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+/* --- Sessions editor panel ------------------------------------------------ */
+
+#zen-focus-space-sessions-panel {
+  --panel-padding: 0;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 620px;
+  max-width: 90vw;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--arrowpanel-color, MenuText);
+}
+
+#zen-focus-space-sessions-panel .zen-fs-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-panel-title {
+  font-weight: 600;
+  margin-inline-end: 6px;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-spacer {
+  flex: 1;
+}
+
+/* Reuse the legend's Today/Week/Month look for the panel's period filter. */
+#zen-focus-space-sessions-panel .zen-fs-periods {
+  display: flex;
+  gap: 2px;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-period,
+#zen-focus-space-sessions-panel .zen-fs-btn {
+  padding: 2px 7px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.95em;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-btn {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  opacity: 0.9;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-period:hover,
+#zen-focus-space-sessions-panel .zen-fs-btn:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+#zen-focus-space-sessions-panel .zen-fs-period[active] {
+  opacity: 1;
+  font-weight: 600;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+#zen-focus-space-sessions-panel .zen-fs-sess-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+/* One session per row: space · start → end · length · delete. The time
+   fields are fixed-width for "YYYY-MM-DD HH:MM:SS"; the space select flexes. */
+#zen-focus-space-sessions-panel .zen-fs-sess-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) 11.5em auto 11.5em 5.5em auto;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 2px;
+  border-radius: 4px;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-sess-columns {
+  opacity: 0.6;
+  font-size: 0.9em;
+  padding-bottom: 2px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+}
+
+#zen-focus-space-sessions-panel .zen-fs-sess-row[running] {
+  opacity: 0.7;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-sess-space,
+#zen-focus-space-sessions-panel .zen-fs-sess-time {
+  min-width: 0;
+  padding: 2px 5px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-sess-time:focus {
+  outline: none;
+  border-color: var(--focus-outline-color, SelectedItem);
+}
+
+#zen-focus-space-sessions-panel .zen-fs-sess-time[invalid] {
+  border-color: #d84a3a;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-sess-arrow {
+  opacity: 0.5;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-sess-dur {
+  text-align: right;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-sess-del {
+  padding: 1px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-sess-del:hover:not(:disabled) {
+  opacity: 1;
+  background: color-mix(in srgb, #d84a3a 25%, transparent);
+}
+
+#zen-focus-space-sessions-panel .zen-fs-sess-del:disabled {
+  opacity: 0.2;
+  cursor: default;
+}
+
+#zen-focus-space-sessions-panel .zen-fs-panel-hint {
+  opacity: 0.55;
+  font-size: 0.9em;
+}
