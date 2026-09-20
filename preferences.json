@@ -21,6 +21,32 @@
   },
   {
     "type": "separator",
+    "label": "Stopwatch",
+    "margin": "25px 0 15px 0"
+  },
+  {
+    "type": "checkbox",
+    "property": "extensions.focus-space.show-separator",
+    "label": "Show a “|” between the space name and the timer",
+    "defaultValue": true
+  },
+  {
+    "type": "text",
+    "label": "Where the timer sits. “Beside the name” pins the space name to its own width so the timer follows it directly. “End of the row” leaves the name's alignment to Zen or your theme (e.g. centred) and floats the timer to the right, next to the pause button."
+  },
+  {
+    "type": "dropdown",
+    "property": "extensions.focus-space.timer-placement",
+    "label": "Timer placement",
+    "placeholder": false,
+    "defaultValue": "beside",
+    "options": [
+      { "label": "Beside the space name (default)", "value": "beside" },
+      { "label": "End of the row", "value": "end" }
+    ]
+  },
+  {
+    "type": "separator",
     "label": "Time-ratio bar",
     "margin": "25px 0 15px 0"
   },

@@ -62,6 +62,8 @@ Hover the time-ratio bar and click **Sessions** in the breakdown flyout. The edi
 Options are available in the `Sine` settings tab:
 
 - **Pause / resume stopwatch** — the keyboard shortcut that toggles the timer. Defaults to **F9**; use a function key, or a letter with a modifier like Ctrl, Alt, or Cmd (e.g. `Alt+Shift+P`) — a bare letter won't bind. Leave it blank to disable.
+- **Show a “|” between the space name and the timer** — on by default. Turn it off for a bare `37:05` after the name.
+- **Timer placement** — **Beside the space name** (default) pins the name to its own width so the timer follows it directly. **End of the row** leaves the name's alignment to Zen or your theme (some themes centre it) and floats the timer to the right, next to the pause button.
 - **Show the daily time-ratio bar at the sidebar foot** — on by default. Turn it off to keep just the stopwatch.
 - **Start a new day at** — the hour the daily totals roll over, in your local time. Defaults to **4:00 AM**, so a late-night session counts toward the day it began on rather than flipping at midnight.
 - **Week starts on** — which day the **Week** view begins. Defaults to **Auto** (your system region); override with Monday, Sunday, or Saturday.
