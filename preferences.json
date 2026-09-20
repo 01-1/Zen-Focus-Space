@@ -94,6 +94,21 @@
   },
   {
     "type": "separator",
+    "label": "Page log",
+    "margin": "25px 0 15px 0"
+  },
+  {
+    "type": "text",
+    "label": "Optionally record which page you're on — the active tab's URL and name — as visits nested inside each session. Browse them under “Pages” on the sessions page, grouped by visit, by stay, or by URL. Kept for 90 days in your profile folder and never sent anywhere."
+  },
+  {
+    "type": "checkbox",
+    "property": "extensions.focus-space.log-pages",
+    "label": "Log the pages you visit (URL and tab title)",
+    "defaultValue": false
+  },
+  {
+    "type": "separator",
     "label": "Daily reset",
     "margin": "25px 0 15px 0"
   },
