@@ -1,0 +1,192 @@
+/* Focus Space — the sessions page. System colours so it follows the theme. */
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  padding: 24px 32px 48px;
+  background: Canvas;
+  color: CanvasText;
+  font: 13px system-ui, sans-serif;
+  max-width: 980px;
+  margin-inline: auto;
+}
+
+h1 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 12px 0 0;
+}
+
+h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 22px 0 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+h2 .total {
+  font-weight: 400;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.periods {
+  display: flex;
+  gap: 2px;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  padding: 3px 9px;
+  border: none;
+  border-radius: 5px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  cursor: pointer;
+}
+
+button:hover {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.periods button {
+  background: transparent;
+  opacity: 0.7;
+}
+
+.periods button:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  opacity: 1;
+}
+
+.periods button[active] {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  opacity: 1;
+  font-weight: 600;
+}
+
+select,
+input[type="text"] {
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  min-width: 0;
+}
+
+input[type="text"] {
+  width: 12.5em;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  border-color: SelectedItem;
+}
+
+input[type="text"][invalid] {
+  border-color: #d84a3a;
+}
+
+.summary {
+  margin: 14px 0 0;
+  opacity: 0.65;
+}
+
+/* One session per row: swatch+space · start → end · length · delete. */
+.row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto auto auto 6em auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 6px;
+}
+
+.row:hover {
+  background: color-mix(in srgb, currentColor 5%, transparent);
+}
+
+.row[running] {
+  opacity: 0.6;
+}
+
+.space {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.swatch {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.space select {
+  flex: 1;
+}
+
+.arrow {
+  opacity: 0.45;
+}
+
+.dur {
+  text-align: right;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.del {
+  background: transparent;
+  opacity: 0.45;
+  padding: 2px 7px;
+}
+
+.del:hover:not(:disabled) {
+  opacity: 1;
+  background: color-mix(in srgb, #d84a3a 25%, transparent);
+}
+
+.del:disabled {
+  opacity: 0.15;
+  cursor: default;
+}
+
+.empty {
+  opacity: 0.6;
+  margin-top: 24px;
+}
+
+.hint {
+  margin-top: 36px;
+  opacity: 0.5;
+  font-size: 12px;
+}
+
+code {
+  font-family: ui-monospace, monospace;
+}

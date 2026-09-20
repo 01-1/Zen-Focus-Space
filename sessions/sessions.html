@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Focus sessions</title>
+    <link rel="stylesheet" href="sessions.css" />
+    <script src="sessions.js" defer></script>
+  </head>
+  <body>
+    <header class="head">
+      <h1>Focus sessions</h1>
+      <div class="periods" id="periods">
+        <button type="button" data-period="today">Today</button>
+        <button type="button" data-period="week">Week</button>
+        <button type="button" data-period="month">Month</button>
+        <button type="button" data-period="all">All</button>
+      </div>
+      <select id="space-filter" title="Only show one space">
+        <option value="">All spaces</option>
+      </select>
+      <span class="spacer"></span>
+      <button type="button" id="add" title="Add a session by hand">Add</button>
+      <button type="button" id="export-csv" title="Export the listed sessions">Export CSV</button>
+      <button type="button" id="export-json" title="Export the listed sessions">Export JSON</button>
+    </header>
+
+    <p class="summary" id="summary"></p>
+
+    <main id="days"></main>
+    <p class="empty" id="empty" hidden>No sessions in this period.</p>
+
+    <footer class="hint">
+      Times are local, <code>YYYY-MM-DD HH:MM:SS</code>. Changes apply when you
+      leave a field; an invalid or reversed time is outlined and not saved. A
+      session that's still running is greyed out until it ends.
+    </footer>
+  </body>
+</html>

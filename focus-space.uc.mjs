@@ -20,6 +20,14 @@ const ICON_PAUSED = 'url("chrome://browser/skin/zen-icons/media-play.svg")';
 
 const RATIO_CONTAINER_ID = "zen-focus-space-ratio";
 const SESSIONS_PANEL_ID = "zen-focus-space-sessions-panel";
+// Where "Sessions" opens the editor: a tab (sessions/sessions.html, served by
+// Sine from the mod folder — the path is derived from theme.json's "id") or
+// the in-window panel.
+const PREF_SESSIONS_VIEW = "extensions.focus-space.sessions-view";
+const SESSIONS_VIEWS = ["page", "panel"];
+const DEFAULT_SESSIONS_VIEW = "page";
+const SESSIONS_PAGE_URL =
+  "chrome://sine/content/focus-space/sessions/sessions.html";
 const PREF_SHOW = "extensions.focus-space.show-ratio-bar";
 // The session log: [{ id, uuid, start, end, open? }] with ms timestamps. A
 // session is one contiguous running stretch in a space; it closes on a space
@@ -36,6 +44,11 @@ const PREF_VIEW = "extensions.focus-space.view-period";
 const PREF_WEEK_START = "extensions.focus-space.week-start";
 const PREF_SHORTCUT = "extensions.focus-space.pause-shortcut";
 const PREF_SEPARATOR = "extensions.focus-space.show-separator";
+// What the indicator counts: the current session (resets on switch/pause) or
+// the space's running total for today, which carries across switches.
+const PREF_STOPWATCH_MODE = "extensions.focus-space.stopwatch-mode";
+const STOPWATCH_MODES = ["session", "day"];
+const DEFAULT_STOPWATCH_MODE = "session";
 const PREF_PLACEMENT = "extensions.focus-space.timer-placement";
 // Where the stopwatch sits in the indicator row. "beside" glues it to the space
 // name (pinning the name to its content width); "end" leaves the name's layout
@@ -84,7 +97,7 @@ const FALLBACK_PALETTE = [
 const INSTANCE_KEY = "__zenFocusSpaceInstance";
 // Logged at startup so the Browser Console shows which build is running.
 // Keep in step with theme.json's "version".
-const MOD_VERSION = "1.2.1";
+const MOD_VERSION = "1.3.0";
 
 // --- session stopwatch state -------------------------------------------------
 let timerInterval = null;
@@ -98,6 +111,7 @@ let pauseOnBlur = true;
 let activeTimerEl = null;
 let activeToggleBtn = null;
 let showSeparator = true;
+let stopwatchMode = DEFAULT_STOPWATCH_MODE;
 let timerPlacement = DEFAULT_PLACEMENT;
 let tornDown = false;
 
@@ -467,7 +481,7 @@ function renderTime() {
     // cancelled in CSS, so this NBSP is the only spacing after the space name.
     // The "|" itself is optional (PREF_SEPARATOR).
     const sep = showSeparator ? "| " : "";
-    activeTimerEl.textContent = ` ${sep}${formatTime(totalSeconds)}`;
+    activeTimerEl.textContent = ` ${sep}${formatTime(stopwatchSeconds())}`;
     positionEndTimer();
   }
 }
@@ -496,11 +510,23 @@ function positionEndTimer() {
   if (!indicatorRect.width || !trailingRect.width) {
     return; // not laid out yet; the next tick will catch it
   }
-  const right = Math.max(0, Math.round(indicatorRect.right - trailingRect.left));
+  const right = Math.max(
+    0,
+    Math.round(indicatorRect.right - trailingRect.left),
+  );
   const value = `${right}px`;
   if (indicator.style.getPropertyValue("--zen-fs-timer-right") !== value) {
     indicator.style.setProperty("--zen-fs-timer-right", value);
   }
+}
+
+// The seconds the indicator shows: the session's own count, or — in "day"
+// mode — the active space's total for today, live session included.
+function stopwatchSeconds() {
+  if (stopwatchMode === "day" && activeUuid) {
+    return Math.floor(periodTotals("today")[activeUuid] || 0);
+  }
+  return totalSeconds;
 }
 
 function stopInterval() {
@@ -966,7 +992,7 @@ function mountBar() {
   );
   editBtn.addEventListener("click", (event) => {
     event.stopPropagation();
-    openSessionsPanel();
+    openSessions();
   });
   const head = el(
     "div",
@@ -1342,9 +1368,11 @@ function sessionRow(session, byId) {
     "✕",
   );
 
+  // A running session belongs to a live window, which keeps extending its
+  // end; only its start can be corrected (the window adopts that from the
+  // store — see onSessionsChanged).
   if (running) {
     select.disabled = true;
-    startInput.disabled = true;
     endInput.disabled = true;
     delBtn.disabled = true;
     delBtn.title = "This session is still running";
@@ -1357,31 +1385,35 @@ function sessionRow(session, byId) {
         }
       });
     });
-    const commitTimes = () => {
-      const start = parseLocal(startInput.value);
-      const end = parseLocal(endInput.value);
-      const valid = !Number.isNaN(start) && !Number.isNaN(end) && end > start;
-      startInput.toggleAttribute("invalid", Number.isNaN(start) || !valid);
-      endInput.toggleAttribute("invalid", Number.isNaN(end) || !valid);
-      if (!valid) {
-        return;
-      }
-      durEl.textContent = formatDuration((end - start) / 1000);
-      updateSessions((list) => {
-        const target = list.find((item) => item.id === session.id);
-        if (target) {
-          target.start = start;
-          target.end = end;
-        }
-      });
-    };
-    startInput.addEventListener("change", commitTimes);
-    endInput.addEventListener("change", commitTimes);
     delBtn.addEventListener("click", () => {
       updateSessions((list) => list.filter((item) => item.id !== session.id));
       renderSessionsPanel();
     });
   }
+  const commitTimes = () => {
+    const start = parseLocal(startInput.value);
+    const end = running ? Date.now() : parseLocal(endInput.value);
+    const valid = !Number.isNaN(start) && !Number.isNaN(end) && end > start;
+    startInput.toggleAttribute("invalid", Number.isNaN(start) || !valid);
+    if (!running) {
+      endInput.toggleAttribute("invalid", Number.isNaN(end) || !valid);
+    }
+    if (!valid) {
+      return;
+    }
+    durEl.textContent = formatDuration((end - start) / 1000);
+    updateSessions((list) => {
+      const target = list.find((item) => item.id === session.id);
+      if (target) {
+        target.start = start;
+        if (!running) {
+          target.end = end;
+        }
+      }
+    });
+  };
+  startInput.addEventListener("change", commitTimes);
+  endInput.addEventListener("change", commitTimes);
 
   const row = el(
     "div",
@@ -1448,6 +1480,37 @@ function openSessionsPanel() {
     panel.openPopup(anchor, "before_start", 0, -6, false, false);
   } else {
     panel.openPopupAtScreen(window.screenX + 40, window.screenY + 80, false);
+  }
+}
+
+function readSessionsViewPref() {
+  try {
+    const value = Services.prefs.getStringPref(
+      PREF_SESSIONS_VIEW,
+      DEFAULT_SESSIONS_VIEW,
+    );
+    return SESSIONS_VIEWS.includes(value) ? value : DEFAULT_SESSIONS_VIEW;
+  } catch {
+    return DEFAULT_SESSIONS_VIEW;
+  }
+}
+
+function openSessions() {
+  if (readSessionsViewPref() === "panel") {
+    openSessionsPanel();
+    return;
+  }
+  // Flush first so the page sees everything this window knows about.
+  flush();
+  try {
+    // A chrome:// document in a tab runs privileged in the parent process,
+    // which is what lets the page work on the prefs and spaces directly.
+    window.switchToTabHavingURI(SESSIONS_PAGE_URL, true, {
+      triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
+    });
+  } catch (e) {
+    console.error("[focus-space] could not open the sessions page:", e);
+    openSessionsPanel();
   }
 }
 
@@ -1530,7 +1593,8 @@ function exportSessions(format) {
     "Export focus sessions",
     Ci.nsIFilePicker.modeSave,
   );
-  picker.defaultString = `focus-sessions-${panelPeriod}-${todayKey()}.${format}`;
+  const stamp = `${panelPeriod}-${todayKey()}`;
+  picker.defaultString = `focus-sessions-${stamp}.${format}`;
   picker.defaultExtension = format;
   picker.appendFilter(format.toUpperCase(), `*.${format}`);
   picker.open((result) => {
@@ -1550,8 +1614,27 @@ function onSessionsChanged() {
   // persisting, so re-reading here yields the same list.
   sessions = readSessions();
   sessionsVersion++;
+  adoptOpenSessionEdits();
   renderBar();
   refreshSessionsPanel();
+}
+
+// The running session is owned by this window's memory and re-upserted on
+// every flush, so an edit made to it in the editor (only its start can be)
+// would be overwritten — unless it's adopted here. The stopwatch shifts by
+// the same amount so the two stay consistent.
+function adoptOpenSessionEdits() {
+  if (!openSession) {
+    return;
+  }
+  const stored = sessions.find((session) => session.id === openSession.id);
+  if (!stored || stored.start === openSession.start) {
+    return;
+  }
+  const delta = (openSession.start - stored.start) / 1000;
+  openSession.start = Math.min(stored.start, openSession.end);
+  totalSeconds = Math.max(0, Math.round(totalSeconds + delta));
+  renderTime();
 }
 
 function onPrefShowChanged() {
@@ -1623,6 +1706,23 @@ function readSeparatorPref() {
 
 function onSeparatorChanged() {
   showSeparator = readSeparatorPref();
+  renderTime();
+}
+
+function readStopwatchModePref() {
+  try {
+    const value = Services.prefs.getStringPref(
+      PREF_STOPWATCH_MODE,
+      DEFAULT_STOPWATCH_MODE,
+    );
+    return STOPWATCH_MODES.includes(value) ? value : DEFAULT_STOPWATCH_MODE;
+  } catch {
+    return DEFAULT_STOPWATCH_MODE;
+  }
+}
+
+function onStopwatchModeChanged() {
+  stopwatchMode = readStopwatchModePref();
   renderTime();
 }
 
@@ -1707,6 +1807,7 @@ const PREF_OBSERVERS = [
   [PREF_WEEK_START, onWeekStartChanged],
   [PREF_SHORTCUT, buildShortcutKey],
   [PREF_SEPARATOR, onSeparatorChanged],
+  [PREF_STOPWATCH_MODE, onStopwatchModeChanged],
   [PREF_PLACEMENT, applyPlacement],
   [PREF_PAUSE_ON_BLUR, onPauseOnBlurChanged],
 ];
@@ -1866,6 +1967,7 @@ startupFinish(() => {
 
   showBar = readShowPref();
   showSeparator = readSeparatorPref();
+  stopwatchMode = readStopwatchModePref();
   applyPlacement();
   pauseOnBlur = readPauseOnBlurPref();
   dayStartHour = readDayStartHour();

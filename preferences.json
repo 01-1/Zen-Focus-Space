@@ -25,6 +25,17 @@
     "margin": "25px 0 15px 0"
   },
   {
+    "type": "dropdown",
+    "property": "extensions.focus-space.stopwatch-mode",
+    "label": "The stopwatch shows",
+    "placeholder": false,
+    "defaultValue": "session",
+    "options": [
+      { "label": "The current session (resets when you switch space)", "value": "session" },
+      { "label": "This space's total for today", "value": "day" }
+    ]
+  },
+  {
     "type": "checkbox",
     "property": "extensions.focus-space.show-separator",
     "label": "Show a “|” between the space name and the timer",
@@ -60,6 +71,26 @@
     "property": "extensions.focus-space.show-ratio-bar",
     "label": "Show the daily time-ratio bar at the sidebar foot",
     "defaultValue": true
+  },
+  {
+    "type": "separator",
+    "label": "Sessions",
+    "margin": "25px 0 15px 0"
+  },
+  {
+    "type": "text",
+    "label": "Where the “Sessions” button in the breakdown flyout opens the editor: a full page in a tab, or a small panel over the sidebar."
+  },
+  {
+    "type": "dropdown",
+    "property": "extensions.focus-space.sessions-view",
+    "label": "Open sessions in",
+    "placeholder": false,
+    "defaultValue": "page",
+    "options": [
+      { "label": "A tab (default)", "value": "page" },
+      { "label": "A panel over the sidebar", "value": "panel" }
+    ]
   },
   {
     "type": "separator",

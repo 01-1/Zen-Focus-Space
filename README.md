@@ -18,7 +18,7 @@
 - 🪟 **Auto-pause when you leave**: Switching to another app (or another Zen window) pauses the stopwatch; coming back resumes it. A pause you made yourself stays put. Can be turned off.
 - 🔄 **Per-space reset**: The stopwatch resets automatically each time you switch spaces, so it always reflects your current session — not a running daily total.
 - 📊 **Time-ratio bar**: A stacked bar at the sidebar foot shows how your time divides across spaces, each segment in that space's own colour. Hover for a breakdown (name, share, and time per space); click a segment to jump to that space.
-- 📝 **Session log, editable**: Every running stretch is logged as a session (space, start, end). A **Sessions** button in the breakdown flyout opens an editor to review, correct, add, or delete sessions — the bar reflects the edits right away.
+- 📝 **Session log, editable**: Every running stretch is logged as a session (space, start, end). A **Sessions** button in the breakdown flyout opens a full-page editor in a tab (or a small panel, if you prefer) to review, correct, add, or delete sessions, grouped by day with totals — the bar reflects edits right away. Even the running session's start can be corrected.
 - 📤 **Export**: Save the listed sessions (today, this week, this month, or everything kept — 90 days) as CSV or JSON from the same editor.
 - 🗓️ **Today / Week / Month**: A toggle in the breakdown flyout switches the bar between the current day, calendar week, and calendar month. The day rolls over at 4 AM by default (configurable), so late-night sessions stay with the right day.
 
@@ -58,14 +58,16 @@ Focus Space works out of the box with no setup required. Switch into a space to 
 
 ### Reviewing and exporting sessions
 
-Hover the time-ratio bar and click **Sessions** in the breakdown flyout. The editor lists each session for the chosen period (Today / Week / Month / All): change its space with the dropdown, or retype its start or end as `YYYY-MM-DD HH:MM:SS` (local time) — edits apply when you leave the field, and an invalid or reversed time is outlined red and not saved. **Add** inserts a session for the last half hour in the current space to correct in place; **✕** deletes one. A session that's still running is shown greyed out until it ends. **Export CSV** / **Export JSON** save the listed sessions through the usual file dialog.
+Hover the time-ratio bar and click **Sessions** in the breakdown flyout. By default this opens a page in a new tab (switch it to a panel over the sidebar under **Open sessions in**). It lists each session for the chosen period (Today / Week / Month / All), grouped by day with a total per day, optionally filtered to one space: change a session's space with the dropdown, or retype its start or end as `YYYY-MM-DD HH:MM:SS` (local time) — edits apply when you leave the field, and an invalid or reversed time is outlined red and not saved. **Add** inserts a session for the last half hour to correct in place; **✕** deletes one. The session that's still running is greyed out — only its start can be changed, and the stopwatch follows. **Export CSV** / **Export JSON** save the listed sessions through the usual file dialog.
 
 Options are available in the `Sine` settings tab:
 
 - **Pause / resume stopwatch** — the keyboard shortcut that toggles the timer. Defaults to **F9**; use a function key, or a letter with a modifier like Ctrl, Alt, or Cmd (e.g. `Alt+Shift+P`) — a bare letter won't bind. Leave it blank to disable.
+- **The stopwatch shows** — **The current session** (default) resets each time you switch space; **This space's total for today** carries on from where the space's day total stands, so switching back and forth doesn't start from zero.
 - **Show a “|” between the space name and the timer** — on by default. Turn it off for a bare `37:05` after the name.
 - **Timer placement** — **Beside the space name** (default) pins the name to its own width so the timer follows it directly. **End of the row** leaves the name's alignment to Zen or your theme (some themes centre it) and floats the timer to the right, next to the pause button.
 - **Pause while the window is inactive** — on by default. The stopwatch pauses when the Zen window loses focus and resumes when it regains it; a manual pause is never auto-resumed. Turn it off to keep counting in the background.
+- **Open sessions in** — **A tab** (default) or **A panel over the sidebar**.
 - **Show the daily time-ratio bar at the sidebar foot** — on by default. Turn it off to keep just the stopwatch.
 - **Start a new day at** — the hour the daily totals roll over, in your local time. Defaults to **4:00 AM**, so a late-night session counts toward the day it began on rather than flipping at midnight.
 - **Week starts on** — which day the **Week** view begins. Defaults to **Auto** (your system region); override with Monday, Sunday, or Saturday.
