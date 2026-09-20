@@ -378,13 +378,23 @@ function togglePause() {
 // when it activates again if that pause was ours. "activate"/"deactivate" are
 // the chrome-window events for top-level focus, unlike window "blur", which
 // also fires for focus moving into the content area.
+//
+// Erring on the side of counting: the only thing that pauses is a definite
+// signal that another window is in front. An unknown focus state (startup,
+// before the OS has focused anything) counts as active, and because window
+// activation events can go missing on some desktops (Wayland compositors in
+// particular), any interaction with the window — a key, click, or scroll —
+// also releases an automatic pause: a user typing here is plainly here.
 function windowIsActive() {
   try {
-    return Services.focus.activeWindow === window;
+    const active = Services.focus.activeWindow;
+    return !active || active === window;
   } catch {
     return true;
   }
 }
+
+const INTERACTION_EVENTS = ["keydown", "mousedown", "wheel", "focus"];
 
 function autoPauseIfInactive() {
   if (pauseOnBlur && !isPaused && !windowIsActive()) {
@@ -401,6 +411,13 @@ function onWindowActivate() {
   if (autoPaused) {
     autoPaused = false;
     setPaused(false);
+  }
+}
+
+// Cheap: a no-op unless we currently hold an automatic pause.
+function onWindowInteraction() {
+  if (autoPaused) {
+    onWindowActivate();
   }
 }
 
@@ -1066,6 +1083,9 @@ startupFinish(() => {
 
   window.addEventListener("activate", onWindowActivate);
   window.addEventListener("deactivate", onWindowDeactivate);
+  for (const type of INTERACTION_EVENTS) {
+    window.addEventListener(type, onWindowInteraction, true);
+  }
 
   window.addEventListener(
     "unload",
@@ -1075,6 +1095,9 @@ startupFinish(() => {
       } catch {}
       window.removeEventListener("activate", onWindowActivate);
       window.removeEventListener("deactivate", onWindowDeactivate);
+      for (const type of INTERACTION_EVENTS) {
+        window.removeEventListener(type, onWindowInteraction, true);
+      }
       try {
         for (const [pref, handler] of PREF_OBSERVERS) {
           Services.prefs.removeObserver(pref, handler);
