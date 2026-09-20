@@ -25,13 +25,24 @@
 
 /* "End" placement (the timer-placement pref): leave the space name exactly as
        Zen or the user's theme lays it out (left-aligned by default, centred by
-       some themes) and float the timer to the end of the row instead. Its auto
-       margin absorbs the row's free space first, so the toggle and "..." (whose
-       own auto margins then get nothing) sit flush after it. */
+       some themes). The timer leaves the flex flow entirely — as a flex item it
+       would still take width from the row and skew a centred name — and is
+       pinned to the right, just ahead of the (hover-revealed) toggle and "...".
+       Their width isn't fixed, so the script measures it into
+       --zen-fs-timer-right on the indicator (see positionEndTimer). */
+:root[zen-focus-space-timer-placement="end"]
+  .zen-current-workspace-indicator:has(> .zen-focus-space-timer) {
+  position: relative;
+}
+
 :root[zen-focus-space-timer-placement="end"]
   .zen-current-workspace-indicator
   .zen-focus-space-timer {
-  margin-inline-start: auto !important;
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+  right: calc(var(--zen-fs-timer-right, 0px) + var(--indicator-gap, 4px));
+  margin: 0 !important;
 }
 
 /* Both the toggle and the "..." actions carry `.zen-workspaces-actions`
