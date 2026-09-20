@@ -46,12 +46,21 @@ const FALLBACK_PALETTE = [
   "#888780",
 ];
 
+// The script is written to run once per window, but Sine re-injects it whenever
+// the mod is toggled off and on (or updated) without unloading the previous
+// run. Each run is a fresh module scope, so the earlier one keeps ticking with
+// no way to reach it from here — unless it left a handle. Every run publishes
+// its teardown under this window property and, on startup, tears down whatever
+// run came before it, so exactly one stopwatch owns the indicator at a time.
+const INSTANCE_KEY = "__zenFocusSpaceInstance";
+
 // --- session stopwatch state -------------------------------------------------
 let timerInterval = null;
 let totalSeconds = 0;
 let isPaused = false;
 let activeTimerEl = null;
 let activeToggleBtn = null;
+let tornDown = false;
 
 // --- pause/resume shortcut state ---------------------------------------------
 // Our isolated <keyset>, re-inserted on rebind so Gecko re-registers the key.
@@ -952,9 +961,79 @@ function startupFinish(callback) {
   }
 }
 
+const onWorkspaceChange = (data) => activate(data.workspace);
+
+// Remove every element this mod adds to the window: the stopwatch label and
+// toggle in each space's indicator, and the ratio bar. Class/id-based rather
+// than reference-based so it also sweeps leftovers from a run that can no
+// longer be reached (see INSTANCE_KEY) — a fresh run must own fresh nodes,
+// since the toggle's click handler is bound to the run that created it.
+function removeOwnElements() {
+  const nodes = document.querySelectorAll(
+    `.${TIMER_LABEL_CLASS}, .${TIMER_BUTTON_CLASS}, #${RATIO_CONTAINER_ID}`,
+  );
+  for (const node of nodes) {
+    node.remove();
+  }
+  activeTimerEl = null;
+  activeToggleBtn = null;
+  barEl = null;
+  legendRowsEl = null;
+  legendEmptyEl = null;
+  periodButtonsEl = null;
+  lastSignature = "";
+}
+
+// Undo everything startup wired up. Runs on window unload and when a newer run
+// of this script supersedes this one; idempotent, since both can happen.
+function teardown() {
+  if (tornDown) {
+    return;
+  }
+  tornDown = true;
+  try {
+    flush();
+  } catch {}
+  try {
+    for (const [pref, handler] of PREF_OBSERVERS) {
+      Services.prefs.removeObserver(pref, handler);
+    }
+  } catch {}
+  if (flushTimer !== null) {
+    clearInterval(flushTimer);
+    flushTimer = null;
+  }
+  stopInterval();
+  activeUuid = null;
+  try {
+    gZenWorkspaces.removeChangeListeners(onWorkspaceChange);
+  } catch {}
+  try {
+    removeShortcutKey();
+  } catch {}
+  removeOwnElements();
+  if (window[INSTANCE_KEY] && window[INSTANCE_KEY].teardown === teardown) {
+    delete window[INSTANCE_KEY];
+  }
+}
+
 // Defer setup until the browser chrome has finished loading, so `gZenWorkspaces`
 // is present for both the listener registration and the initial activate below.
 startupFinish(() => {
+  // Retire the previous run of this script, if any, before installing this one;
+  // then sweep any of our elements it left behind (or that an older build that
+  // never published a handle left behind) so nothing is shared between runs.
+  const previous = window[INSTANCE_KEY];
+  if (previous && typeof previous.teardown === "function") {
+    try {
+      previous.teardown();
+    } catch (e) {
+      console.error("[focus-space] previous instance teardown failed:", e);
+    }
+  }
+  removeOwnElements();
+  window[INSTANCE_KEY] = { teardown };
+
   showBar = readShowPref();
   dayStartHour = readDayStartHour();
   viewPeriod = readViewPref();
@@ -962,7 +1041,7 @@ startupFinish(() => {
   dailyData = readData();
   currentDayKey = todayKey();
 
-  gZenWorkspaces.addChangeListeners((data) => activate(data.workspace));
+  gZenWorkspaces.addChangeListeners(onWorkspaceChange);
 
   // Cover the initial active space, in case its onInit change fired before the
   // listener was registered. Safe to call again: activate() resets cleanly.
@@ -989,25 +1068,5 @@ startupFinish(() => {
   }
   flushTimer = setInterval(flush, FLUSH_MS);
 
-  window.addEventListener(
-    "unload",
-    () => {
-      try {
-        flush();
-      } catch {}
-      try {
-        for (const [pref, handler] of PREF_OBSERVERS) {
-          Services.prefs.removeObserver(pref, handler);
-        }
-      } catch {}
-      if (flushTimer !== null) {
-        clearInterval(flushTimer);
-      }
-      stopInterval();
-      try {
-        removeShortcutKey();
-      } catch {}
-    },
-    { once: true },
-  );
+  window.addEventListener("unload", teardown, { once: true });
 });
