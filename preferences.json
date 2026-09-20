@@ -46,6 +46,11 @@
     ]
   },
   {
+    "property": "extensions.focus-space.pause-on-blur",
+    "label": "Pause while the window is inactive, and resume when it's back",
+    "defaultValue": true
+  },
+  {
     "type": "separator",
     "label": "Time-ratio bar",
     "margin": "25px 0 15px 0"

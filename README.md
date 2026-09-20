@@ -15,6 +15,7 @@
 
 - ⏱️ **Live stopwatch**: An `mm:ss` timer ticks away in the active workspace indicator, right next to the space name.
 - ⏸️ **Pause & resume**: A one-click toggle — or a keyboard shortcut (`F9` by default, customizable) — pauses the count and picks up exactly where you left off; it freezes today's tally too.
+- 🪟 **Auto-pause when you leave**: Switching to another app (or another Zen window) pauses the stopwatch; coming back resumes it. A pause you made yourself stays put. Can be turned off.
 - 🔄 **Per-space reset**: The stopwatch resets automatically each time you switch spaces, so it always reflects your current session — not a running daily total.
 - 📊 **Time-ratio bar**: A stacked bar at the sidebar foot shows how your time divides across spaces, each segment in that space's own colour. Hover for a breakdown (name, share, and time per space); click a segment to jump to that space.
 - 📝 **Session log, editable**: Every running stretch is logged as a session (space, start, end). A **Sessions** button in the breakdown flyout opens an editor to review, correct, add, or delete sessions — the bar reflects the edits right away.
@@ -64,6 +65,7 @@ Options are available in the `Sine` settings tab:
 - **Pause / resume stopwatch** — the keyboard shortcut that toggles the timer. Defaults to **F9**; use a function key, or a letter with a modifier like Ctrl, Alt, or Cmd (e.g. `Alt+Shift+P`) — a bare letter won't bind. Leave it blank to disable.
 - **Show a “|” between the space name and the timer** — on by default. Turn it off for a bare `37:05` after the name.
 - **Timer placement** — **Beside the space name** (default) pins the name to its own width so the timer follows it directly. **End of the row** leaves the name's alignment to Zen or your theme (some themes centre it) and floats the timer to the right, next to the pause button.
+- **Pause while the window is inactive** — on by default. The stopwatch pauses when the Zen window loses focus and resumes when it regains it; a manual pause is never auto-resumed. Turn it off to keep counting in the background.
 - **Show the daily time-ratio bar at the sidebar foot** — on by default. Turn it off to keep just the stopwatch.
 - **Start a new day at** — the hour the daily totals roll over, in your local time. Defaults to **4:00 AM**, so a late-night session counts toward the day it began on rather than flipping at midnight.
 - **Week starts on** — which day the **Week** view begins. Defaults to **Auto** (your system region); override with Monday, Sunday, or Saturday.

@@ -43,6 +43,7 @@ const PREF_PLACEMENT = "extensions.focus-space.timer-placement";
 const PLACEMENTS = ["beside", "end"];
 const DEFAULT_PLACEMENT = "beside";
 const PLACEMENT_ATTR = "zen-focus-space-timer-placement";
+const PREF_PAUSE_ON_BLUR = "extensions.focus-space.pause-on-blur";
 const FLUSH_MS = 10000;
 const RETENTION_DAYS = 90;
 // A gap between ticks this long means the machine slept or the browser hung:
@@ -86,6 +87,11 @@ const INSTANCE_KEY = "__zenFocusSpaceInstance";
 let timerInterval = null;
 let totalSeconds = 0;
 let isPaused = false;
+// True while the pause was made by us because the window went inactive (see
+// PREF_PAUSE_ON_BLUR), so it can be undone when the window comes back — a
+// pause the user made by hand is left alone.
+let autoPaused = false;
+let pauseOnBlur = true;
 let activeTimerEl = null;
 let activeToggleBtn = null;
 let showSeparator = true;
@@ -519,14 +525,18 @@ function updateButtonVisual() {
     isPaused ? ICON_PAUSED : ICON_RUNNING,
     "important",
   );
-  activeToggleBtn.setAttribute(
-    "tooltiptext",
-    isPaused ? "Resume timer" : "Pause timer",
-  );
+  let tooltip = "Pause timer";
+  if (isPaused) {
+    tooltip = autoPaused ? "Paused (window inactive) — resume" : "Resume timer";
+  }
+  activeToggleBtn.setAttribute("tooltiptext", tooltip);
 }
 
-function togglePause() {
-  isPaused = !isPaused;
+function setPaused(paused) {
+  if (paused === isPaused) {
+    return;
+  }
+  isPaused = paused;
   if (isPaused) {
     // Pausing stops the shared tick and closes the running session, so the
     // break isn't logged; flush so it isn't sitting only in volatile memory.
@@ -540,6 +550,65 @@ function togglePause() {
     startInterval();
   }
   updateButtonVisual();
+}
+
+// The user's toggle (button or shortcut). A deliberate pause or resume takes
+// over from any automatic one: pausing by hand while auto-paused means "stay
+// paused when the window comes back", resuming by hand just resumes.
+function togglePause() {
+  autoPaused = false;
+  setPaused(!isPaused);
+}
+
+// --- auto-pause while the window is inactive ---------------------------------
+// Time in another app (or another Zen window) isn't focus time in this space,
+// so a running stopwatch pauses when the window deactivates and only resumes
+// when it activates again if that pause was ours. "activate"/"deactivate" are
+// the chrome-window events for top-level focus, unlike window "blur", which
+// also fires for focus moving into the content area.
+function windowIsActive() {
+  try {
+    return Services.focus.activeWindow === window;
+  } catch {
+    return true;
+  }
+}
+
+function autoPauseIfInactive() {
+  if (pauseOnBlur && !isPaused && !windowIsActive()) {
+    autoPaused = true;
+    setPaused(true);
+  }
+}
+
+function onWindowDeactivate() {
+  autoPauseIfInactive();
+}
+
+function onWindowActivate() {
+  if (autoPaused) {
+    autoPaused = false;
+    setPaused(false);
+  }
+}
+
+function readPauseOnBlurPref() {
+  try {
+    return Services.prefs.getBoolPref(PREF_PAUSE_ON_BLUR, true);
+  } catch {
+    return true;
+  }
+}
+
+function onPauseOnBlurChanged() {
+  pauseOnBlur = readPauseOnBlurPref();
+  if (pauseOnBlur) {
+    autoPauseIfInactive();
+  } else if (autoPaused) {
+    // Turning it off while we hold an automatic pause releases it.
+    autoPaused = false;
+    setPaused(false);
+  }
 }
 
 function ensureTimerEl(indicator) {
@@ -1580,6 +1649,7 @@ const PREF_OBSERVERS = [
   [PREF_SHORTCUT, buildShortcutKey],
   [PREF_SEPARATOR, onSeparatorChanged],
   [PREF_PLACEMENT, applyPlacement],
+  [PREF_PAUSE_ON_BLUR, onPauseOnBlurChanged],
 ];
 
 // --- activation + startup ----------------------------------------------------
@@ -1615,12 +1685,16 @@ function activate(workspace) {
   stopInterval();
   totalSeconds = 0;
   isPaused = false;
+  autoPaused = false;
   activeTimerEl = timerEl;
   activeToggleBtn = indicator ? ensureButton(indicator) : null;
 
   renderTime();
   updateButtonVisual();
   startInterval();
+  // Zen syncs space switches across windows, so this also runs in windows that
+  // aren't in front: those shouldn't start counting until they are.
+  autoPauseIfInactive();
 
   renderBar();
 }
@@ -1677,6 +1751,8 @@ function teardown() {
     endSession(Date.now());
     flush();
   } catch {}
+  window.removeEventListener("activate", onWindowActivate);
+  window.removeEventListener("deactivate", onWindowDeactivate);
   try {
     for (const [pref, handler] of PREF_OBSERVERS) {
       Services.prefs.removeObserver(pref, handler);
@@ -1721,6 +1797,7 @@ startupFinish(() => {
   showBar = readShowPref();
   showSeparator = readSeparatorPref();
   applyPlacement();
+  pauseOnBlur = readPauseOnBlurPref();
   dayStartHour = readDayStartHour();
   viewPeriod = readViewPref();
   updateWeekStart();
@@ -1755,5 +1832,7 @@ startupFinish(() => {
   }
   flushTimer = setInterval(flush, FLUSH_MS);
 
+  window.addEventListener("activate", onWindowActivate);
+  window.addEventListener("deactivate", onWindowDeactivate);
   window.addEventListener("unload", teardown, { once: true });
 });
