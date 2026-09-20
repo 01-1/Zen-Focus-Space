@@ -6,7 +6,7 @@
 </div>
 
 <div align="center">
-    <img width="640" alt="Zen Browser with Focus Space: a live 'Work | 37:05' stopwatch in the workspace indicator, and the sidebar-foot time-ratio bar with its Today/Week/Month breakdown open (Work 71%, Learn 9%, Rest 20%)" src="https://raw.githubusercontent.com/Zebeqo/Zen-Focus-Space/main/preview.png" />
+    <img width="640" alt="Zen Browser with Focus Space: a live 'Work | 37:05' stopwatch in the workspace indicator, and the sidebar-foot time-ratio bar with its Today/Week/Month breakdown open (Work 71%, Learn 9%, Rest 20%)" src="https://raw.githubusercontent.com/01-1/Zen-Focus-Space/main/preview.png" />
 </div>
 
 **Focus Space** adds a live stopwatch to the active workspace indicator in Zen Browser, so you can see at a glance how long you've been focused in the current space. The timer starts the moment you switch into a space and resets when you switch away, with a one-click pause/resume toggle beside the label — or a keyboard shortcut (`F9` by default). A second view — a stacked ratio bar at the foot of the sidebar — shows how your time splits across all your spaces, switchable between today, this week, and this month.
@@ -37,7 +37,7 @@ Focus Space is a JavaScript mod, and Sine blocks JS from outside its official st
 
 1. Open Zen **Settings → Sine Mods**.
 2. Click the **gear (⚙️)** icon to the right of the GitHub-repo **Install** button, tick **“Enable installing JS from unofficial sources”**, then **Close**.
-3. In the **“or, add your own locally from a GitHub repo”** field, enter `Zebeqo/Zen-Focus-Space`.
+3. In the **“or, add your own locally from a GitHub repo”** field, enter `01-1/Zen-Focus-Space`.
 4. Click **Install**.
 
 Sine flags that toggle *“use at your own risk”* because it lets any repo run code in the browser — Focus Space's whole source lives in this repo, so you can review exactly what it does first.
@@ -82,7 +82,7 @@ Focus Space keeps everything on your machine — no servers, no accounts, no tel
 
 ## 🙏 Credits and Acknowledgements
 
-Created by [Zebeqo](https://github.com/Zebeqo).
+Created by [Zebeqo](https://github.com/Zebeqo); this fork is maintained at [01-1/Zen-Focus-Space](https://github.com/01-1/Zen-Focus-Space) (upstream: [Zebeqo/Zen-Focus-Space](https://github.com/Zebeqo/Zen-Focus-Space)).
 
 Built for [Zen Browser](https://zen-browser.app/) and the [Sine](https://github.com/CosmoCreeper/Sine) mod manager.
 
