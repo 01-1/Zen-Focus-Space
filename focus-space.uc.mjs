@@ -23,6 +23,14 @@ const PREF_DAY_START = "extensions.focus-space.day-start-hour";
 const PREF_VIEW = "extensions.focus-space.view-period";
 const PREF_WEEK_START = "extensions.focus-space.week-start";
 const PREF_SHORTCUT = "extensions.focus-space.pause-shortcut";
+const PREF_SEPARATOR = "extensions.focus-space.show-separator";
+const PREF_PLACEMENT = "extensions.focus-space.timer-placement";
+// Where the stopwatch sits in the indicator row. "beside" glues it to the space
+// name (pinning the name to its content width); "end" leaves the name's layout
+// to Zen/the user's theme and floats the timer to the end of the row instead.
+const PLACEMENTS = ["beside", "end"];
+const DEFAULT_PLACEMENT = "beside";
+const PLACEMENT_ATTR = "zen-focus-space-timer-placement";
 const FLUSH_MS = 10000;
 const RETENTION_DAYS = 90;
 // The day boundary: time logged before this local hour counts toward the
@@ -52,6 +60,8 @@ let totalSeconds = 0;
 let isPaused = false;
 let activeTimerEl = null;
 let activeToggleBtn = null;
+let showSeparator = true;
+let timerPlacement = DEFAULT_PLACEMENT;
 
 // --- pause/resume shortcut state ---------------------------------------------
 // Our isolated <keyset>, re-inserted on rebind so Gecko re-registers the key.
@@ -287,7 +297,9 @@ function renderTime() {
     // Leading NBSP is exactly one space before the "|" (a normal leading space
     // would be collapsed). The indicator's flex `gap` ahead of the timer is
     // cancelled in CSS, so this NBSP is the only spacing after the space name.
-    activeTimerEl.textContent = ` | ${formatTime(totalSeconds)}`;
+    // The "|" itself is optional (PREF_SEPARATOR).
+    const sep = showSeparator ? "| " : "";
+    activeTimerEl.textContent = ` ${sep}${formatTime(totalSeconds)}`;
   }
 }
 
@@ -842,6 +854,38 @@ function onViewChanged() {
   renderBar();
 }
 
+function readSeparatorPref() {
+  try {
+    return Services.prefs.getBoolPref(PREF_SEPARATOR, true);
+  } catch {
+    return true;
+  }
+}
+
+function onSeparatorChanged() {
+  showSeparator = readSeparatorPref();
+  renderTime();
+}
+
+function readPlacementPref() {
+  try {
+    const value = Services.prefs.getStringPref(
+      PREF_PLACEMENT,
+      DEFAULT_PLACEMENT,
+    );
+    return PLACEMENTS.includes(value) ? value : DEFAULT_PLACEMENT;
+  } catch {
+    return DEFAULT_PLACEMENT;
+  }
+}
+
+// The placement is purely a layout concern, so it's exposed to focus-space.css
+// as a root attribute rather than restructuring the indicator's DOM.
+function applyPlacement() {
+  timerPlacement = readPlacementPref();
+  document.documentElement.setAttribute(PLACEMENT_ATTR, timerPlacement);
+}
+
 // Like the day-start pref, the week-start dropdown may persist as a string
 // ("auto" or a day index) or an int; accept either.
 function readWeekStartPref() {
@@ -902,6 +946,8 @@ const PREF_OBSERVERS = [
   [PREF_VIEW, onViewChanged],
   [PREF_WEEK_START, onWeekStartChanged],
   [PREF_SHORTCUT, buildShortcutKey],
+  [PREF_SEPARATOR, onSeparatorChanged],
+  [PREF_PLACEMENT, applyPlacement],
 ];
 
 // --- activation + startup ----------------------------------------------------
@@ -956,6 +1002,8 @@ function startupFinish(callback) {
 // is present for both the listener registration and the initial activate below.
 startupFinish(() => {
   showBar = readShowPref();
+  showSeparator = readSeparatorPref();
+  applyPlacement();
   dayStartHour = readDayStartHour();
   viewPeriod = readViewPref();
   updateWeekStart();
@@ -1007,6 +1055,7 @@ startupFinish(() => {
       try {
         removeShortcutKey();
       } catch {}
+      document.documentElement.removeAttribute(PLACEMENT_ATTR);
     },
     { once: true },
   );

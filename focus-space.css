@@ -13,11 +13,25 @@
 /* Zen lets the space name grow (flex: 1) to fill the indicator, which would
        shove the timer to the far end of the row. Pin the name to its content width
        so the timer sits right beside it; the actions buttons still anchor to the
-       right via their own `margin-left: auto`. */
-:root:not([zen-renaming-tab="true"])
+       right via their own `margin-left: auto`. Only in the default "beside"
+       placement — see the "end" placement below. */
+:root:not([zen-renaming-tab="true"]):not(
+    [zen-focus-space-timer-placement="end"]
+  )
   .zen-current-workspace-indicator:has(> .zen-focus-space-timer)
   .zen-current-workspace-indicator-name {
   flex: 0 1 auto !important;
+}
+
+/* "End" placement (the timer-placement pref): leave the space name exactly as
+       Zen or the user's theme lays it out (left-aligned by default, centred by
+       some themes) and float the timer to the end of the row instead. Its auto
+       margin absorbs the row's free space first, so the toggle and "..." (whose
+       own auto margins then get nothing) sit flush after it. */
+:root[zen-focus-space-timer-placement="end"]
+  .zen-current-workspace-indicator
+  .zen-focus-space-timer {
+  margin-inline-start: auto !important;
 }
 
 /* Both the toggle and the "..." actions carry `.zen-workspaces-actions`
