@@ -1,15 +1,15 @@
 {
   "id": "focus-space",
   "name": "Focus Space",
-  "description": "A live stopwatch in the active workspace indicator showing how long you've been focused in the current space, plus a stacked ratio bar at the sidebar foot showing how your time splits across your spaces by day, week, or month. Includes a one-click pause/resume toggle and a customizable keyboard shortcut (F9 by default).",
+  "description": "A live stopwatch in the active workspace indicator showing how long you've been focused in the current space, plus a stacked ratio bar at the sidebar foot showing how your time splits across your spaces by day, week, or month. Sessions are logged, editable, and exportable as CSV or JSON. Includes a one-click pause/resume toggle and a customizable keyboard shortcut (F9 by default).",
   "author": "Zebeqo",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "homepage": "https://github.com/Zebeqo/Zen-Focus-Space",
   "tags": ["focus", "workspace", "productivity"],
   "image": "https://raw.githubusercontent.com/Zebeqo/Zen-Focus-Space/main/preview.png",
   "readme": "https://raw.githubusercontent.com/Zebeqo/Zen-Focus-Space/main/README.md",
   "createdAt": "2026-06-19",
-  "updatedAt": "2026-06-19",
+  "updatedAt": "2026-09-20",
   "fork": ["zen"],
   "preferences": "preferences.json",
   "style": {

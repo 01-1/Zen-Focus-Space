@@ -6,8 +6,10 @@
 //   2. A "today" time-ratio bar at the sidebar foot: a stacked proportion bar
 //      showing how today's time splits across spaces.
 // Both are driven by the same 1s tick, so pausing freezes both. The stopwatch
-// is per-session (resets on switch); the daily buckets persist (per-day,
-// per-space seconds in a pref) and only reset at local midnight.
+// is per-session (resets on switch); the underlying record is a log of
+// sessions — one per contiguous running stretch in a space — persisted in a
+// pref, which the bar sums per day and a small editor lets the user view,
+// correct, and export.
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 
@@ -17,14 +19,32 @@ const ICON_RUNNING = 'url("chrome://browser/skin/zen-icons/media-pause.svg")';
 const ICON_PAUSED = 'url("chrome://browser/skin/zen-icons/media-play.svg")';
 
 const RATIO_CONTAINER_ID = "zen-focus-space-ratio";
+const SESSIONS_PANEL_ID = "zen-focus-space-sessions-panel";
 const PREF_SHOW = "extensions.focus-space.show-ratio-bar";
-const PREF_DATA = "extensions.focus-space.daily-data";
+// The session log: [{ id, uuid, start, end, open? }] with ms timestamps. A
+// session is one contiguous running stretch in a space; it closes on a space
+// switch, pause, day rollover, sleep gap, or window unload. `open` marks the
+// session a window is still running (its `end` is the last flush).
+const PREF_SESSIONS = "extensions.focus-space.sessions";
+// Pre-1.1 builds kept per-day, per-space totals in this pref. It's read once,
+// converted into sessions, and then left alone (as a backup) — see
+// migrateLegacyData.
+const PREF_LEGACY_DATA = "extensions.focus-space.daily-data";
+const PREF_MIGRATED = "extensions.focus-space.sessions-migrated";
 const PREF_DAY_START = "extensions.focus-space.day-start-hour";
 const PREF_VIEW = "extensions.focus-space.view-period";
 const PREF_WEEK_START = "extensions.focus-space.week-start";
 const PREF_SHORTCUT = "extensions.focus-space.pause-shortcut";
 const FLUSH_MS = 10000;
 const RETENTION_DAYS = 90;
+// A gap between ticks this long means the machine slept or the browser hung:
+// none of it was focus time, so the running session is closed where the last
+// tick left it and a fresh one starts. (Matches the old tick-counting model,
+// where a sleeping timer simply didn't count.)
+const GAP_SPLIT_MS = 120000;
+// A session still flagged `open` whose end is this stale belongs to a window
+// that went away without closing it (crash, kill); any flush clears the flag.
+const STALE_OPEN_MS = 60000;
 // The day boundary: time logged before this local hour counts toward the
 // previous day, so a late-night session stays with the day it began on.
 // User-overridable via PREF_DAY_START (0–23); 4am by default.
@@ -46,26 +66,39 @@ const FALLBACK_PALETTE = [
   "#888780",
 ];
 
+// The script is written to run once per window, but Sine re-injects it whenever
+// the mod is toggled off and on (or updated) without unloading the previous
+// run. Each run is a fresh module scope, so the earlier one keeps ticking with
+// no way to reach it from here — unless it left a handle. Every run publishes
+// its teardown under this window property and, on startup, tears down whatever
+// run came before it, so exactly one stopwatch owns the indicator at a time.
+const INSTANCE_KEY = "__zenFocusSpaceInstance";
+
 // --- session stopwatch state -------------------------------------------------
 let timerInterval = null;
 let totalSeconds = 0;
 let isPaused = false;
 let activeTimerEl = null;
 let activeToggleBtn = null;
+let tornDown = false;
 
 // --- pause/resume shortcut state ---------------------------------------------
 // Our isolated <keyset>, re-inserted on rebind so Gecko re-registers the key.
 let pauseKeysetEl = null;
 
-// --- daily-tracking state ----------------------------------------------------
-// dailyData mirrors the shared pref: { "YYYY-MM-DD": { uuid: seconds } }.
-// localUnflushed holds seconds accrued in THIS window since the last flush, so
-// multiple windows sum (each flushes its own delta) instead of clobbering.
-// Trade-off: a space foregrounded in two windows at once is counted twice, so
-// absolute legend times can exceed wall-clock — but the cross-space ratios (the
-// point of the bar) stay correct, so we accept it rather than coordinate windows.
-let dailyData = {};
-let localUnflushed = {};
+// --- session-log state -------------------------------------------------------
+// `sessions` mirrors the shared pref. This window contributes `openSession`
+// (the stretch currently running here) and `pendingSessions` (ones it closed
+// since the last flush); flush() upserts both into the store by id, so several
+// windows append without clobbering each other. Trade-off: a space foregrounded
+// in two windows at once is counted twice, so absolute legend times can exceed
+// wall-clock — but the cross-space ratios (the point of the bar) stay correct,
+// so we accept it rather than coordinate windows.
+let sessions = [];
+let sessionsVersion = 0;
+let openSession = null;
+let pendingSessions = [];
+let lastTickAt = Date.now();
 let dayStartHour = DEFAULT_DAY_START;
 let currentDayKey = todayKey();
 let activeUuid = null;
@@ -187,50 +220,152 @@ function legendName(workspace) {
 }
 
 // --- persistence -------------------------------------------------------------
-function readData() {
+function readSessions() {
   try {
-    const raw = Services.prefs.getStringPref(PREF_DATA, "");
-    return raw ? JSON.parse(raw) : {};
+    const raw = Services.prefs.getStringPref(PREF_SESSIONS, "");
+    const list = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(list)) {
+      return [];
+    }
+    return list.filter(
+      (item) =>
+        item &&
+        typeof item.id === "string" &&
+        typeof item.uuid === "string" &&
+        Number.isFinite(item.start) &&
+        Number.isFinite(item.end),
+    );
   } catch {
-    return {};
+    return [];
   }
 }
 
-function writeData(data) {
+function writeSessions(list) {
   try {
-    Services.prefs.setStringPref(PREF_DATA, JSON.stringify(data));
+    Services.prefs.setStringPref(PREF_SESSIONS, JSON.stringify(list));
   } catch {}
 }
 
-function prune(data) {
+function newSessionId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// A session belongs to the logical day it started on; the tick splits running
+// sessions at rollover, so only hand-edited ones can straddle a boundary.
+function sessionDayKey(session) {
+  return dayKeyFor(session.start);
+}
+
+function pruneSessions(list) {
   const cutoff = cutoffKey();
-  for (const key of Object.keys(data)) {
-    // ISO date strings compare lexicographically, so this drops old days.
-    if (key < cutoff) {
-      delete data[key];
-    }
+  // ISO date keys compare lexicographically, so this drops old days.
+  return list.filter((session) => sessionDayKey(session) >= cutoff);
+}
+
+function beginSession(uuid, at) {
+  openSession = { id: newSessionId(), uuid, start: at, end: at, open: true };
+}
+
+// Close this window's running session at `at`. Sub-second stretches (a quick
+// switch through a space) are dropped rather than logged as clutter.
+function endSession(at) {
+  if (!openSession) {
+    return;
+  }
+  const session = openSession;
+  openSession = null;
+  session.end = Math.max(session.start, at);
+  delete session.open;
+  if (session.end - session.start >= 1000) {
+    pendingSessions.push(session);
   }
 }
 
-// Re-read the shared store, add this window's pending delta, write it back.
-// Infrequent + delta-based, so the rare cross-window write race loses at most
-// a few seconds rather than a whole window's tally.
+// Re-read the shared store, upsert this window's sessions, write it back. The
+// read-modify-write is synchronous and every window shares the main thread, so
+// two windows' flushes can't interleave.
 function flush() {
-  const uuids = Object.keys(localUnflushed);
-  if (!uuids.length) {
+  if (!openSession && !pendingSessions.length) {
     return;
   }
-  const fresh = readData();
-  const day = fresh[currentDayKey] || (fresh[currentDayKey] = {});
-  for (const uuid of uuids) {
-    day[uuid] = (day[uuid] || 0) + localUnflushed[uuid];
+  const now = Date.now();
+  const byId = new Map(readSessions().map((session) => [session.id, session]));
+  for (const session of pendingSessions) {
+    byId.set(session.id, session);
   }
-  prune(fresh);
+  if (openSession) {
+    byId.set(openSession.id, { ...openSession });
+  }
+  for (const session of byId.values()) {
+    const ours = openSession && session.id === openSession.id;
+    if (session.open && !ours && now - session.end > STALE_OPEN_MS) {
+      delete session.open;
+    }
+  }
+  const list = pruneSessions([...byId.values()]);
   // Update our in-memory view and clear the delta first, then persist, so the
   // observer's re-read — ours fires synchronously here — sees the same totals.
-  dailyData = fresh;
-  localUnflushed = {};
-  writeData(fresh);
+  pendingSessions = [];
+  sessions = list;
+  sessionsVersion++;
+  writeSessions(list);
+}
+
+// Apply an edit to the store: flush first so everything this window knows is
+// in there, then read-modify-write. `mutate` gets the list and returns the new
+// one (or mutates in place and returns nothing).
+function updateSessions(mutate) {
+  flush();
+  const list = readSessions();
+  const next = mutate(list) || list;
+  sessions = pruneSessions(next);
+  sessionsVersion++;
+  writeSessions(sessions);
+}
+
+// One-time conversion of the pre-1.1 per-day totals into sessions, so old data
+// still shows in the bar and the editor. Each day's totals become back-to-back
+// synthetic sessions from that day's start hour (marked `migrated`); the
+// legacy pref is left untouched as a backup and never read again.
+function migrateLegacyData() {
+  try {
+    if (Services.prefs.getBoolPref(PREF_MIGRATED, false)) {
+      return;
+    }
+    const raw = Services.prefs.getStringPref(PREF_LEGACY_DATA, "");
+    const legacy = raw ? JSON.parse(raw) : {};
+    const list = readSessions();
+    let added = false;
+    for (const key of Object.keys(legacy)) {
+      const [y, m, d] = key.split("-").map(Number);
+      if (![y, m, d].every(Number.isInteger)) {
+        continue;
+      }
+      let cursor = new Date(y, m - 1, d, dayStartHour, 0, 0).getTime();
+      const day = legacy[key] || {};
+      for (const uuid of Object.keys(day)) {
+        const seconds = Math.floor(day[uuid]);
+        if (!(seconds > 0)) {
+          continue;
+        }
+        list.push({
+          id: newSessionId(),
+          uuid,
+          start: cursor,
+          end: cursor + seconds * 1000,
+          migrated: true,
+        });
+        cursor += seconds * 1000;
+        added = true;
+      }
+    }
+    if (added) {
+      writeSessions(pruneSessions(list));
+    }
+    Services.prefs.setBoolPref(PREF_MIGRATED, true);
+  } catch (e) {
+    console.error("[focus-space] legacy data migration failed:", e);
+  }
 }
 
 // The first day-key of the selected period. "today" is just currentDayKey;
@@ -251,22 +386,46 @@ function periodStartKey(period) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
 
-// Per-space seconds across the selected period: every stored day-key from the
-// period start through today (ISO keys compare lexicographically), plus this
-// window's not-yet-flushed delta, which always belongs to today.
+// Per-space seconds across the selected period. Stored sessions are summed
+// once per (store version, period, day) and cached, since this runs on every
+// tick; this window's own running/unflushed sessions are added live on top.
+let totalsCache = { key: "", totals: {} };
+
+function inPeriod(session, startKey) {
+  const key = sessionDayKey(session);
+  return key >= startKey && key <= currentDayKey;
+}
+
 function periodTotals(period) {
   const startKey = periodStartKey(period);
-  const totals = {};
-  for (const key of Object.keys(dailyData)) {
-    if (key >= startKey && key <= currentDayKey) {
-      const day = dailyData[key];
-      for (const uuid of Object.keys(day)) {
-        totals[uuid] = (totals[uuid] || 0) + day[uuid];
+  const cacheKey = [
+    sessionsVersion,
+    startKey,
+    currentDayKey,
+    dayStartHour,
+  ].join("|");
+  if (totalsCache.key !== cacheKey) {
+    const stored = {};
+    for (const session of sessions) {
+      if (openSession && session.id === openSession.id) {
+        continue; // counted live below, from memory
+      }
+      if (inPeriod(session, startKey)) {
+        stored[session.uuid] =
+          (stored[session.uuid] || 0) + (session.end - session.start) / 1000;
       }
     }
+    totalsCache = { key: cacheKey, totals: stored };
   }
-  for (const uuid of Object.keys(localUnflushed)) {
-    totals[uuid] = (totals[uuid] || 0) + localUnflushed[uuid];
+  const totals = { ...totalsCache.totals };
+  const live = openSession
+    ? [...pendingSessions, openSession]
+    : pendingSessions;
+  for (const session of live) {
+    if (inPeriod(session, startKey)) {
+      totals[session.uuid] =
+        (totals[session.uuid] || 0) + (session.end - session.start) / 1000;
+    }
   }
   return totals;
 }
@@ -299,28 +458,41 @@ function stopInterval() {
 }
 
 // If the logical day has turned over (local midnight, or the configured
-// day-start hour), persist the closing day's remainder into the day we're
-// leaving and start the new one clean. No-op within the same day.
+// day-start hour), split the running session at the boundary so the closing
+// day keeps its part and the new day starts clean. No-op within the same day.
 function rolloverIfNeeded() {
   const key = todayKey();
   if (key === currentDayKey) {
     return;
   }
+  const now = Date.now();
+  if (openSession) {
+    const uuid = openSession.uuid;
+    endSession(now);
+    beginSession(uuid, now);
+  }
   flush();
   currentDayKey = key;
-  localUnflushed = {};
 }
 
-// The shared 1s tick: advances the visible stopwatch AND the active space's
-// daily bucket, handles day rollover, then repaints the bar.
+// The shared 1s tick: advances the visible stopwatch AND the running session's
+// end, handles sleep gaps and day rollover, then repaints the bar.
 function startInterval() {
   stopInterval();
+  lastTickAt = Date.now();
   timerInterval = setInterval(() => {
+    const now = Date.now();
+    if (openSession && now - lastTickAt > GAP_SPLIT_MS) {
+      const uuid = openSession.uuid;
+      endSession(lastTickAt);
+      beginSession(uuid, now);
+    }
+    lastTickAt = now;
     rolloverIfNeeded();
     totalSeconds++;
     renderTime();
-    if (activeUuid) {
-      localUnflushed[activeUuid] = (localUnflushed[activeUuid] || 0) + 1;
+    if (openSession) {
+      openSession.end = now;
     }
     renderBar();
   }, 1000);
@@ -344,11 +516,15 @@ function updateButtonVisual() {
 function togglePause() {
   isPaused = !isPaused;
   if (isPaused) {
-    // Pausing stops the shared tick, so it freezes the daily total too; flush
-    // what we have so a long break isn't sitting only in volatile memory.
+    // Pausing stops the shared tick and closes the running session, so the
+    // break isn't logged; flush so it isn't sitting only in volatile memory.
     stopInterval();
+    endSession(Date.now());
     flush();
   } else {
+    if (activeUuid) {
+      beginSession(activeUuid, Date.now());
+    }
     startInterval();
   }
   updateButtonVisual();
@@ -640,7 +816,25 @@ function mountBar() {
     periodButton("week", "Week"),
     periodButton("month", "Month"),
   );
-  const head = el("div", { class: "zen-fs-legend-head" }, periodButtonsEl);
+  const editBtn = el(
+    "button",
+    {
+      class: "zen-fs-edit",
+      type: "button",
+      title: "View, edit, and export focus sessions",
+    },
+    "Sessions",
+  );
+  editBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openSessionsPanel();
+  });
+  const head = el(
+    "div",
+    { class: "zen-fs-legend-head" },
+    periodButtonsEl,
+    editBtn,
+  );
   legendRowsEl = el("div", { class: "zen-fs-legend-rows" });
   legendEmptyEl = el(
     "div",
@@ -774,13 +968,451 @@ function renderBar() {
   rebuildBar(spaces, minutes, totalMinutes);
 }
 
+// --- sessions editor + export ------------------------------------------------
+// A <panel> (so it can float over the content area, wider than the sidebar)
+// listing the sessions of a chosen period, oldest last. Each row's space,
+// start, and end are editable and apply on change; a session another window
+// is still running (`open`) is read-only. Exports go through the native save
+// dialog as CSV or JSON.
+const PANEL_PERIODS = [...PERIODS, "all"];
+let panelEl = null;
+let panelListEl = null;
+let panelEmptyEl = null;
+let panelPeriodButtonsEl = null;
+let panelPeriod = DEFAULT_VIEW;
+
+function formatLocal(ms) {
+  const d = new Date(ms);
+  return (
+    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+    `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+  );
+}
+
+const LOCAL_TIME_RE =
+  /^\s*(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?\s*$/;
+
+// "YYYY-MM-DD HH:MM[:SS]" (local time) → ms, or NaN. Plain text rather than
+// <input type="datetime-local">: its picker popup isn't reliable inside a
+// chrome <panel>, and typing a timestamp is the common edit anyway.
+function parseLocal(str) {
+  const m = LOCAL_TIME_RE.exec(str);
+  if (!m) {
+    return NaN;
+  }
+  const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  return Number.isNaN(d.getTime()) ? NaN : d.getTime();
+}
+
+function formatDuration(seconds) {
+  const total = Math.max(0, Math.floor(seconds));
+  const hrs = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hrs > 0) {
+    return `${hrs}h ${pad2(mins)}m`;
+  }
+  if (mins > 0) {
+    return `${mins}m ${pad2(secs)}s`;
+  }
+  return `${secs}s`;
+}
+
+function spacesById() {
+  let spaces;
+  try {
+    spaces = gZenWorkspaces.getWorkspaces();
+  } catch {
+    spaces = [];
+  }
+  const map = new Map();
+  spaces.forEach((workspace, index) => {
+    map.set(workspace.uuid, { workspace, index });
+  });
+  return map;
+}
+
+function spaceLabel(uuid, byId) {
+  const entry = byId.get(uuid);
+  return entry ? legendName(entry.workspace) : "Unknown space";
+}
+
+// Everything in the store plus this window's unflushed sessions, filtered to
+// the panel's period and sorted newest first. The panel flushes before it
+// opens and before every edit, so in practice the pending list is empty here
+// and only the running session comes from memory.
+function panelSessions() {
+  const own = new Set();
+  const live = openSession
+    ? [...pendingSessions, openSession]
+    : pendingSessions;
+  for (const session of live) {
+    own.add(session.id);
+  }
+  const list = sessions.filter((session) => !own.has(session.id)).concat(live);
+  const startKey = panelPeriod === "all" ? "" : periodStartKey(panelPeriod);
+  return list
+    .filter((session) => panelPeriod === "all" || inPeriod(session, startKey))
+    .sort((a, b) => b.start - a.start);
+}
+
+function ensureSessionsPanel() {
+  if (panelEl) {
+    return panelEl;
+  }
+  const panel = document.createXULElement("panel");
+  panel.id = SESSIONS_PANEL_ID;
+  panel.setAttribute("type", "arrow");
+  // Editing shouldn't be cancelled by a stray click elsewhere; the panel closes
+  // via its button or Escape.
+  panel.setAttribute("noautohide", "true");
+  panel.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      closeSessionsPanel();
+    }
+  });
+
+  panelPeriodButtonsEl = el("div", { class: "zen-fs-periods" });
+  for (const [value, label] of [
+    ["today", "Today"],
+    ["week", "Week"],
+    ["month", "Month"],
+    ["all", "All"],
+  ]) {
+    const btn = el(
+      "button",
+      { class: "zen-fs-period", type: "button", "data-period": value },
+      label,
+    );
+    btn.addEventListener("click", () => {
+      panelPeriod = value;
+      renderSessionsPanel();
+    });
+    panelPeriodButtonsEl.append(btn);
+  }
+
+  const addBtn = el(
+    "button",
+    { class: "zen-fs-btn", type: "button", title: "Add a session by hand" },
+    "Add",
+  );
+  addBtn.addEventListener("click", addSession);
+  const csvBtn = el(
+    "button",
+    { class: "zen-fs-btn", type: "button", title: "Export listed sessions" },
+    "Export CSV",
+  );
+  csvBtn.addEventListener("click", () => exportSessions("csv"));
+  const jsonBtn = el(
+    "button",
+    { class: "zen-fs-btn", type: "button", title: "Export listed sessions" },
+    "Export JSON",
+  );
+  jsonBtn.addEventListener("click", () => exportSessions("json"));
+  const closeBtn = el(
+    "button",
+    { class: "zen-fs-btn zen-fs-close", type: "button", title: "Close" },
+    "Close",
+  );
+  closeBtn.addEventListener("click", closeSessionsPanel);
+
+  const head = el(
+    "div",
+    { class: "zen-fs-panel-head" },
+    el("span", { class: "zen-fs-panel-title" }, "Focus sessions"),
+    panelPeriodButtonsEl,
+    el("span", { class: "zen-fs-spacer" }),
+    addBtn,
+    csvBtn,
+    jsonBtn,
+    closeBtn,
+  );
+  const columns = el(
+    "div",
+    { class: "zen-fs-sess-row zen-fs-sess-columns" },
+    el("span", null, "Space"),
+    el("span", null, "Start"),
+    el("span", null, ""),
+    el("span", null, "End"),
+    el("span", { class: "zen-fs-sess-dur" }, "Length"),
+    el("span", null, ""),
+  );
+  panelListEl = el("div", { class: "zen-fs-sess-list" });
+  panelEmptyEl = el("div", { class: "zen-fs-legend-empty" }, "No sessions");
+  const hint = el(
+    "div",
+    { class: "zen-fs-panel-hint" },
+    "Times are local, YYYY-MM-DD HH:MM:SS. Changes apply as you leave a field.",
+  );
+  panel.append(
+    el(
+      "div",
+      { class: "zen-fs-panel" },
+      head,
+      columns,
+      panelListEl,
+      panelEmptyEl,
+      hint,
+    ),
+  );
+
+  const popupSet = document.getElementById("mainPopupSet");
+  (popupSet || document.documentElement).appendChild(panel);
+  panelEl = panel;
+  return panel;
+}
+
+function sessionRow(session, byId) {
+  const running = Boolean(session.open);
+  const select = el("select", { class: "zen-fs-sess-space" });
+  let known = false;
+  for (const { workspace } of byId.values()) {
+    const opt = el("option", { value: workspace.uuid }, legendName(workspace));
+    if (workspace.uuid === session.uuid) {
+      opt.setAttribute("selected", "");
+      known = true;
+    }
+    select.append(opt);
+  }
+  if (!known) {
+    const opt = el("option", { value: session.uuid }, "Unknown space");
+    opt.setAttribute("selected", "");
+    select.append(opt);
+  }
+  const startInput = el("input", {
+    class: "zen-fs-sess-time",
+    type: "text",
+    value: formatLocal(session.start),
+    spellcheck: "false",
+  });
+  const endInput = el("input", {
+    class: "zen-fs-sess-time",
+    type: "text",
+    value: running ? "running" : formatLocal(session.end),
+    spellcheck: "false",
+  });
+  const durEl = el(
+    "span",
+    { class: "zen-fs-sess-dur" },
+    formatDuration((session.end - session.start) / 1000),
+  );
+  const delBtn = el(
+    "button",
+    { class: "zen-fs-sess-del", type: "button", title: "Delete this session" },
+    "✕",
+  );
+
+  if (running) {
+    select.disabled = true;
+    startInput.disabled = true;
+    endInput.disabled = true;
+    delBtn.disabled = true;
+    delBtn.title = "This session is still running";
+  } else {
+    select.addEventListener("change", () => {
+      updateSessions((list) => {
+        const target = list.find((item) => item.id === session.id);
+        if (target) {
+          target.uuid = select.value;
+        }
+      });
+    });
+    const commitTimes = () => {
+      const start = parseLocal(startInput.value);
+      const end = parseLocal(endInput.value);
+      const valid = !Number.isNaN(start) && !Number.isNaN(end) && end > start;
+      startInput.toggleAttribute("invalid", Number.isNaN(start) || !valid);
+      endInput.toggleAttribute("invalid", Number.isNaN(end) || !valid);
+      if (!valid) {
+        return;
+      }
+      durEl.textContent = formatDuration((end - start) / 1000);
+      updateSessions((list) => {
+        const target = list.find((item) => item.id === session.id);
+        if (target) {
+          target.start = start;
+          target.end = end;
+        }
+      });
+    };
+    startInput.addEventListener("change", commitTimes);
+    endInput.addEventListener("change", commitTimes);
+    delBtn.addEventListener("click", () => {
+      updateSessions((list) => list.filter((item) => item.id !== session.id));
+      renderSessionsPanel();
+    });
+  }
+
+  const row = el(
+    "div",
+    { class: "zen-fs-sess-row", "data-id": session.id },
+    select,
+    startInput,
+    el("span", { class: "zen-fs-sess-arrow" }, "→"),
+    endInput,
+    durEl,
+    delBtn,
+  );
+  if (running) {
+    row.setAttribute("running", "");
+  }
+  if (session.migrated) {
+    row.title =
+      "Converted from the pre-1.1 daily totals; its time of day is a guess";
+  }
+  return row;
+}
+
+function renderSessionsPanel() {
+  if (!panelEl) {
+    return;
+  }
+  for (const btn of panelPeriodButtonsEl.children) {
+    btn.toggleAttribute(
+      "active",
+      btn.getAttribute("data-period") === panelPeriod,
+    );
+  }
+  const byId = spacesById();
+  const list = panelSessions();
+  panelListEl.textContent = "";
+  for (const session of list) {
+    panelListEl.append(sessionRow(session, byId));
+  }
+  panelEmptyEl.hidden = list.length > 0;
+  panelListEl.hidden = list.length === 0;
+}
+
+// Repaint after an external change, but not out from under an edit in
+// progress (a rebuild would drop the focused field's pending value).
+function refreshSessionsPanel() {
+  if (!panelEl || panelEl.state !== "open") {
+    return;
+  }
+  if (panelEl.contains(document.activeElement)) {
+    return;
+  }
+  renderSessionsPanel();
+}
+
+function openSessionsPanel() {
+  const panel = ensureSessionsPanel();
+  flush();
+  panelPeriod = PANEL_PERIODS.includes(viewPeriod) ? viewPeriod : DEFAULT_VIEW;
+  renderSessionsPanel();
+  const anchor = document.getElementById(RATIO_CONTAINER_ID);
+  if (panel.state === "open") {
+    return;
+  }
+  if (anchor) {
+    panel.openPopup(anchor, "before_start", 0, -6, false, false);
+  } else {
+    panel.openPopupAtScreen(window.screenX + 40, window.screenY + 80, false);
+  }
+}
+
+function closeSessionsPanel() {
+  if (panelEl && panelEl.state !== "closed") {
+    panelEl.hidePopup();
+  }
+}
+
+// A hand-added session: the last half hour in the active (or first) space,
+// ready to be corrected in place.
+function addSession() {
+  let uuid = activeUuid;
+  if (!uuid) {
+    const first = spacesById().keys().next();
+    uuid = first.done ? null : first.value;
+  }
+  if (!uuid) {
+    return;
+  }
+  const end = Date.now();
+  const start = end - 30 * 60000;
+  updateSessions((list) => {
+    list.push({ id: newSessionId(), uuid, start, end });
+  });
+  if (
+    panelPeriod !== "all" &&
+    !inPeriod({ start }, periodStartKey(panelPeriod))
+  ) {
+    panelPeriod = "today";
+  }
+  renderSessionsPanel();
+  const row = panelListEl.querySelector(".zen-fs-sess-row:not([running])");
+  const field = row && row.querySelector(".zen-fs-sess-time");
+  if (field) {
+    field.focus();
+    field.select();
+  }
+}
+
+function csvField(value) {
+  const text = String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function exportSessions(format) {
+  flush();
+  const byId = spacesById();
+  const rows = panelSessions()
+    .slice()
+    .reverse()
+    .map((session) => ({
+      id: session.id,
+      space: spaceLabel(session.uuid, byId),
+      space_id: session.uuid,
+      start: formatLocal(session.start),
+      end: formatLocal(session.end),
+      seconds: Math.round((session.end - session.start) / 1000),
+      running: Boolean(session.open),
+    }));
+  let text;
+  if (format === "csv") {
+    const header = ["space", "space_id", "start", "end", "seconds", "running"];
+    text =
+      header.join(",") +
+      "\n" +
+      rows
+        .map((row) => header.map((key) => csvField(row[key])).join(","))
+        .join("\n") +
+      "\n";
+  } else {
+    text = JSON.stringify(rows, null, 2) + "\n";
+  }
+
+  const picker = Cc["@mozilla.org/filepicker;1"].createInstance(
+    Ci.nsIFilePicker,
+  );
+  picker.init(
+    window.browsingContext,
+    "Export focus sessions",
+    Ci.nsIFilePicker.modeSave,
+  );
+  picker.defaultString = `focus-sessions-${panelPeriod}-${todayKey()}.${format}`;
+  picker.defaultExtension = format;
+  picker.appendFilter(format.toUpperCase(), `*.${format}`);
+  picker.open((result) => {
+    if (result === Ci.nsIFilePicker.returnCancel || !picker.file) {
+      return;
+    }
+    IOUtils.writeUTF8(picker.file.path, text).catch((e) => {
+      console.error("[focus-space] export failed:", e);
+    });
+  });
+}
+
 // --- pref observers ----------------------------------------------------------
-function onPrefDataChanged() {
-  // Fires on any window's flush, including our own synchronous self-write —
-  // harmless, since flush() updates dailyData and clears localUnflushed before
-  // persisting, so re-reading here yields the same totals.
-  dailyData = readData();
+function onSessionsChanged() {
+  // Fires on any window's flush or edit, including our own synchronous
+  // self-write — harmless, since the writers update `sessions` before
+  // persisting, so re-reading here yields the same list.
+  sessions = readSessions();
+  sessionsVersion++;
   renderBar();
+  refreshSessionsPanel();
 }
 
 function onPrefShowChanged() {
@@ -896,7 +1528,7 @@ function onWeekStartChanged() {
 // Every pref the bar reacts to, paired with its handler. One list drives both
 // registration (startup) and teardown (unload) so they can't drift apart.
 const PREF_OBSERVERS = [
-  [PREF_DATA, onPrefDataChanged],
+  [PREF_SESSIONS, onSessionsChanged],
   [PREF_SHOW, onPrefShowChanged],
   [PREF_DAY_START, onDayStartChanged],
   [PREF_VIEW, onViewChanged],
@@ -912,10 +1544,13 @@ function activate(workspace) {
     return;
   }
 
-  // Daily time now accrues to this space (until the next switch). This is set
-  // before the stopwatch UI so accrual keeps working even if the indicator
-  // isn't present for some reason.
+  // Time now accrues to this space (until the next switch): close the session
+  // in the space we're leaving and open one here. This is set up before the
+  // stopwatch UI so logging keeps working even if the indicator isn't present.
+  const now = Date.now();
+  endSession(now);
   activeUuid = workspace.uuid;
+  beginSession(activeUuid, now);
 
   const indicator = document
     .getElementById(workspace.uuid)
@@ -930,7 +1565,7 @@ function activate(workspace) {
   }
 
   // Reset the session stopwatch for the newly-active space and (re)start the
-  // shared tick. The daily buckets are untouched — switching never resets them.
+  // shared tick. The session log is untouched — switching never resets it.
   stopInterval();
   totalSeconds = 0;
   isPaused = false;
@@ -952,17 +1587,99 @@ function startupFinish(callback) {
   }
 }
 
+const onWorkspaceChange = (data) => activate(data.workspace);
+
+// Remove every element this mod adds to the window: the stopwatch label and
+// toggle in each space's indicator, and the ratio bar. Class/id-based rather
+// than reference-based so it also sweeps leftovers from a run that can no
+// longer be reached (see INSTANCE_KEY) — a fresh run must own fresh nodes,
+// since the toggle's click handler is bound to the run that created it.
+function removeOwnElements() {
+  const nodes = document.querySelectorAll(
+    `.${TIMER_LABEL_CLASS}, .${TIMER_BUTTON_CLASS}, ` +
+      `#${RATIO_CONTAINER_ID}, #${SESSIONS_PANEL_ID}`,
+  );
+  for (const node of nodes) {
+    if (typeof node.hidePopup === "function" && node.state !== "closed") {
+      try {
+        node.hidePopup();
+      } catch {}
+    }
+    node.remove();
+  }
+  panelEl = null;
+  panelListEl = null;
+  panelEmptyEl = null;
+  panelPeriodButtonsEl = null;
+  activeTimerEl = null;
+  activeToggleBtn = null;
+  barEl = null;
+  legendRowsEl = null;
+  legendEmptyEl = null;
+  periodButtonsEl = null;
+  lastSignature = "";
+}
+
+// Undo everything startup wired up. Runs on window unload and when a newer run
+// of this script supersedes this one; idempotent, since both can happen.
+function teardown() {
+  if (tornDown) {
+    return;
+  }
+  tornDown = true;
+  try {
+    endSession(Date.now());
+    flush();
+  } catch {}
+  try {
+    for (const [pref, handler] of PREF_OBSERVERS) {
+      Services.prefs.removeObserver(pref, handler);
+    }
+  } catch {}
+  if (flushTimer !== null) {
+    clearInterval(flushTimer);
+    flushTimer = null;
+  }
+  stopInterval();
+  activeUuid = null;
+  try {
+    gZenWorkspaces.removeChangeListeners(onWorkspaceChange);
+  } catch {}
+  try {
+    removeShortcutKey();
+  } catch {}
+  removeOwnElements();
+  if (window[INSTANCE_KEY] && window[INSTANCE_KEY].teardown === teardown) {
+    delete window[INSTANCE_KEY];
+  }
+}
+
 // Defer setup until the browser chrome has finished loading, so `gZenWorkspaces`
 // is present for both the listener registration and the initial activate below.
 startupFinish(() => {
+  // Retire the previous run of this script, if any, before installing this one;
+  // then sweep any of our elements it left behind (or that an older build that
+  // never published a handle left behind) so nothing is shared between runs.
+  const previous = window[INSTANCE_KEY];
+  if (previous && typeof previous.teardown === "function") {
+    try {
+      previous.teardown();
+    } catch (e) {
+      console.error("[focus-space] previous instance teardown failed:", e);
+    }
+  }
+  removeOwnElements();
+  window[INSTANCE_KEY] = { teardown };
+
   showBar = readShowPref();
   dayStartHour = readDayStartHour();
   viewPeriod = readViewPref();
   updateWeekStart();
-  dailyData = readData();
+  migrateLegacyData();
+  sessions = readSessions();
   currentDayKey = todayKey();
 
-  gZenWorkspaces.addChangeListeners((data) => activate(data.workspace));
+  gZenWorkspaces.addChangeListeners(onWorkspaceChange);
 
   // Cover the initial active space, in case its onInit change fired before the
   // listener was registered. Safe to call again: activate() resets cleanly.
@@ -989,25 +1706,5 @@ startupFinish(() => {
   }
   flushTimer = setInterval(flush, FLUSH_MS);
 
-  window.addEventListener(
-    "unload",
-    () => {
-      try {
-        flush();
-      } catch {}
-      try {
-        for (const [pref, handler] of PREF_OBSERVERS) {
-          Services.prefs.removeObserver(pref, handler);
-        }
-      } catch {}
-      if (flushTimer !== null) {
-        clearInterval(flushTimer);
-      }
-      stopInterval();
-      try {
-        removeShortcutKey();
-      } catch {}
-    },
-    { once: true },
-  );
+  window.addEventListener("unload", teardown, { once: true });
 });

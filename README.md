@@ -17,6 +17,8 @@
 - ⏸️ **Pause & resume**: A one-click toggle — or a keyboard shortcut (`F9` by default, customizable) — pauses the count and picks up exactly where you left off; it freezes today's tally too.
 - 🔄 **Per-space reset**: The stopwatch resets automatically each time you switch spaces, so it always reflects your current session — not a running daily total.
 - 📊 **Time-ratio bar**: A stacked bar at the sidebar foot shows how your time divides across spaces, each segment in that space's own colour. Hover for a breakdown (name, share, and time per space); click a segment to jump to that space.
+- 📝 **Session log, editable**: Every running stretch is logged as a session (space, start, end). A **Sessions** button in the breakdown flyout opens an editor to review, correct, add, or delete sessions — the bar reflects the edits right away.
+- 📤 **Export**: Save the listed sessions (today, this week, this month, or everything kept — 90 days) as CSV or JSON from the same editor.
 - 🗓️ **Today / Week / Month**: A toggle in the breakdown flyout switches the bar between the current day, calendar week, and calendar month. The day rolls over at 4 AM by default (configurable), so late-night sessions stay with the right day.
 
 ## ✅ Requirements
@@ -52,6 +54,10 @@ Either way, click the restart toast when it appears to restart Zen. Then switch 
 ## 🎨 Customization
 
 Focus Space works out of the box with no setup required. Switch into a space to start the timer, and use the pause/resume button in the indicator — or press the keyboard shortcut (`F9` by default) — to control it.
+
+### Reviewing and exporting sessions
+
+Hover the time-ratio bar and click **Sessions** in the breakdown flyout. The editor lists each session for the chosen period (Today / Week / Month / All): change its space with the dropdown, or retype its start or end as `YYYY-MM-DD HH:MM:SS` (local time) — edits apply when you leave the field, and an invalid or reversed time is outlined red and not saved. **Add** inserts a session for the last half hour in the current space to correct in place; **✕** deletes one. A session that's still running is shown greyed out until it ends. **Export CSV** / **Export JSON** save the listed sessions through the usual file dialog.
 
 Options are available in the `Sine` settings tab:
 
