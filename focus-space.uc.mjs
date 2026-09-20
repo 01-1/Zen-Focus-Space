@@ -379,12 +379,12 @@ function togglePause() {
 // the chrome-window events for top-level focus, unlike window "blur", which
 // also fires for focus moving into the content area.
 //
-// Erring on the side of counting: the only thing that pauses is a definite
-// signal that another window is in front. An unknown focus state (startup,
-// before the OS has focused anything) counts as active, and because window
-// activation events can go missing on some desktops (Wayland compositors in
-// particular), any interaction with the window — a key, click, or scroll —
-// also releases an automatic pause: a user typing here is plainly here.
+// Erring on the side of counting: a "deactivate" event pauses outright (it is
+// the definite signal), but the focus *query* used on a space switch treats an
+// unknown state — startup, before the OS has focused anything — as active. And
+// because activation events can go missing on some desktops (Wayland
+// compositors in particular), any interaction with the window — a key, click,
+// or scroll — also releases an automatic pause: a user typing here is here.
 function windowIsActive() {
   try {
     const active = Services.focus.activeWindow;
@@ -396,15 +396,21 @@ function windowIsActive() {
 
 const INTERACTION_EVENTS = ["keydown", "mousedown", "wheel", "focus"];
 
-function autoPauseIfInactive() {
-  if (pauseOnBlur && !isPaused && !windowIsActive()) {
+function autoPause() {
+  if (pauseOnBlur && !isPaused) {
     autoPaused = true;
     setPaused(true);
   }
 }
 
+function autoPauseIfInactive() {
+  if (!windowIsActive()) {
+    autoPause();
+  }
+}
+
 function onWindowDeactivate() {
-  autoPauseIfInactive();
+  autoPause();
 }
 
 function onWindowActivate() {
