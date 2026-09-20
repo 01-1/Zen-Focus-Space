@@ -468,6 +468,38 @@ function renderTime() {
     // The "|" itself is optional (PREF_SEPARATOR).
     const sep = showSeparator ? "| " : "";
     activeTimerEl.textContent = ` ${sep}${formatTime(totalSeconds)}`;
+    positionEndTimer();
+  }
+}
+
+// In the "end" placement the timer is taken out of the indicator's flex flow
+// (so the space name is laid out exactly as it would be without a timer) and
+// pinned just ahead of the trailing action buttons. Those have no fixed width
+// — and are only revealed on hover — so the offset is measured and handed to
+// the stylesheet as a variable. Cheap enough to run on each tick; it also
+// self-heals when the first call lands before the indicator has a layout.
+function positionEndTimer() {
+  if (timerPlacement !== "end" || !activeTimerEl) {
+    return;
+  }
+  const indicator = activeTimerEl.parentNode;
+  if (!indicator) {
+    return;
+  }
+  const trailing =
+    activeToggleBtn || indicator.querySelector(".zen-workspaces-actions");
+  if (!trailing) {
+    return;
+  }
+  const indicatorRect = indicator.getBoundingClientRect();
+  const trailingRect = trailing.getBoundingClientRect();
+  if (!indicatorRect.width || !trailingRect.width) {
+    return; // not laid out yet; the next tick will catch it
+  }
+  const right = Math.max(0, Math.round(indicatorRect.right - trailingRect.left));
+  const value = `${right}px`;
+  if (indicator.style.getPropertyValue("--zen-fs-timer-right") !== value) {
+    indicator.style.setProperty("--zen-fs-timer-right", value);
   }
 }
 
@@ -1611,6 +1643,7 @@ function readPlacementPref() {
 function applyPlacement() {
   timerPlacement = readPlacementPref();
   document.documentElement.setAttribute(PLACEMENT_ATTR, timerPlacement);
+  positionEndTimer();
 }
 
 // Like the day-start pref, the week-start dropdown may persist as a string
