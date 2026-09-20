@@ -2,13 +2,17 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Focus sessions</title>
+    <title>Focus Space</title>
     <link rel="stylesheet" href="sessions.css" />
     <script src="sessions.js" defer></script>
   </head>
   <body>
     <header class="head">
-      <h1>Focus sessions</h1>
+      <h1>Focus Space</h1>
+      <div class="views" id="views">
+        <button type="button" data-view="sessions">Sessions</button>
+        <button type="button" data-view="pages">Pages</button>
+      </div>
       <div class="periods" id="periods">
         <button type="button" data-period="today">Today</button>
         <button type="button" data-period="week">Week</button>
@@ -18,21 +22,39 @@
       <select id="space-filter" title="Only show one space">
         <option value="">All spaces</option>
       </select>
+      <input type="search" id="search" placeholder="Filter by title or URL" hidden />
       <span class="spacer"></span>
       <button type="button" id="add" title="Add a session by hand">Add</button>
-      <button type="button" id="export-csv" title="Export the listed sessions">Export CSV</button>
-      <button type="button" id="export-json" title="Export the listed sessions">Export JSON</button>
+      <button type="button" id="clear" title="Delete every visit listed below" hidden>Clear listed</button>
+      <button type="button" id="export-csv" title="Export what's listed">Export CSV</button>
+      <button type="button" id="export-json" title="Export what's listed">Export JSON</button>
     </header>
 
-    <p class="summary" id="summary"></p>
+    <div class="subhead">
+      <p class="summary" id="summary"></p>
+      <div class="groupings" id="groupings" hidden>
+        <button type="button" data-grouping="visits" title="Every visit on its own">Visits</button>
+        <button type="button" data-grouping="stays" title="Visits to the same page back to back, combined — anything else in between splits them">Stays</button>
+        <button type="button" data-grouping="urls" title="One row per URL for the whole period">By URL</button>
+      </div>
+    </div>
 
+    <p class="notice" id="notice" hidden></p>
+    <nav class="pager" id="pager-top" hidden></nav>
     <main id="days"></main>
     <p class="empty" id="empty" hidden>No sessions in this period.</p>
+    <nav class="pager" id="pager-bottom" hidden></nav>
 
-    <footer class="hint">
+    <footer class="hint" id="hint-sessions">
       Times are local, <code>YYYY-MM-DD HH:MM:SS</code>. Changes apply when you
       leave a field; an invalid or reversed time is outlined and not saved. A
       session that's still running is greyed out until it ends.
+    </footer>
+    <footer class="hint" id="hint-pages" hidden>
+      A visit is one uninterrupted stretch on a URL while the stopwatch was
+      running — a pause, a space switch, or a new day ends it. Click a title to
+      open the page; click the visit count to see each visit. Visits are kept
+      for 90 days.
     </footer>
   </body>
 </html>

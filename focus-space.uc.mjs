@@ -9,7 +9,9 @@
 // is per-session (resets on switch); the underlying record is a log of
 // sessions — one per contiguous running stretch in a space — persisted in a
 // pref, which the bar sums per day and a small editor lets the user view,
-// correct, and export.
+// correct, and export. Optionally (PREF_LOG_PAGES) the active tab's URL and
+// title are logged too, as visits nested inside those sessions, to per-day
+// files the editor page reads.
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 
@@ -57,6 +59,22 @@ const PLACEMENTS = ["beside", "end"];
 const DEFAULT_PLACEMENT = "beside";
 const PLACEMENT_ATTR = "zen-focus-space-timer-placement";
 const PREF_PAUSE_ON_BLUR = "extensions.focus-space.pause-on-blur";
+// The optional page log (off by default). While a session runs, the active
+// tab's URL and title are recorded as "visits" — one per contiguous stretch
+// on a URL, nested inside the space session (a pause or switch ends both) —
+// so the sessions page can show where the time went. A URL change starts a
+// new visit; a title change only updates the running one. The log can grow
+// far past what a pref can hold (Firefox caps one at 1 MB), so closed visits
+// are appended to per-day JSONL files under <profile>/focus-space/visits/,
+// pruned to RETENTION_DAYS by deleting old files; only the running visits sit
+// in a pref (upserted by id, exactly like open sessions) so a crash loses at
+// most FLUSH_MS of them. The version pref is bumped after every file write,
+// which is how the page knows to re-read.
+const PREF_LOG_PAGES = "extensions.focus-space.log-pages";
+const PREF_OPEN_VISITS = "extensions.focus-space.open-visits";
+const PREF_VISITS_VERSION = "extensions.focus-space.visits-version";
+const VISITS_DIR_PARTS = ["focus-space", "visits"];
+const MAX_URL_LENGTH = 2000;
 const FLUSH_MS = 10000;
 const RETENTION_DAYS = 90;
 // A gap between ticks this long means the machine slept or the browser hung:
@@ -97,7 +115,7 @@ const FALLBACK_PALETTE = [
 const INSTANCE_KEY = "__zenFocusSpaceInstance";
 // Logged at startup so the Browser Console shows which build is running.
 // Keep in step with theme.json's "version".
-const MOD_VERSION = "1.3.0";
+const MOD_VERSION = "1.4.0";
 
 // --- session stopwatch state -------------------------------------------------
 let timerInterval = null;
@@ -139,6 +157,15 @@ let flushTimer = null;
 let showBar = true;
 let viewPeriod = DEFAULT_VIEW;
 let weekStartDow = 1; // 0=Sunday … 6=Saturday; resolved from the week-start pref
+
+// --- page-log state ----------------------------------------------------------
+// `openVisit` is the stretch on the current URL (only ever set while
+// `openSession` is), `pendingVisits` the ones closed since the last flush.
+// File writes are chained so appends from this window land in order.
+let logPages = false;
+let openVisit = null;
+let pendingVisits = [];
+let visitsWriteQueue = Promise.resolve();
 
 // Bar/legend element references. The bar is a minute-resolution view: it
 // repaints only when a whole-minute value (or the set of spaces) changes, so
@@ -297,6 +324,7 @@ function pruneSessions(list) {
 
 function beginSession(uuid, at) {
   openSession = { id: newSessionId(), uuid, start: at, end: at, open: true };
+  trackVisit(at);
 }
 
 // Close this window's running session at `at`. Sub-second stretches (a quick
@@ -305,6 +333,7 @@ function endSession(at) {
   if (!openSession) {
     return;
   }
+  endVisit(at);
   const session = openSession;
   openSession = null;
   session.end = Math.max(session.start, at);
@@ -314,10 +343,16 @@ function endSession(at) {
   }
 }
 
+// Persist everything this window holds in memory: sessions, then visits.
+function flush() {
+  flushSessions();
+  flushVisits();
+}
+
 // Re-read the shared store, upsert this window's sessions, write it back. The
 // read-modify-write is synchronous and every window shares the main thread, so
 // two windows' flushes can't interleave.
-function flush() {
+function flushSessions() {
   if (!openSession && !pendingSessions.length) {
     return;
   }
@@ -342,6 +377,233 @@ function flush() {
   sessions = list;
   sessionsVersion++;
   writeSessions(list);
+}
+
+// --- page log ----------------------------------------------------------------
+function readLogPagesPref() {
+  try {
+    return Services.prefs.getBoolPref(PREF_LOG_PAGES, false);
+  } catch {
+    return false;
+  }
+}
+
+function visitsDir() {
+  return PathUtils.join(PathUtils.profileDir, ...VISITS_DIR_PARTS);
+}
+
+function visitFile(dayKey) {
+  return PathUtils.join(visitsDir(), `${dayKey}.jsonl`);
+}
+
+// The URL as logged: credentials stripped (a `user:pass@host` URL would put
+// a password in the log) and capped, so one data: URL can't bloat a line.
+function cleanUrl(spec) {
+  let url = spec;
+  try {
+    const parsed = new URL(spec);
+    if (parsed.username || parsed.password) {
+      parsed.username = "";
+      parsed.password = "";
+      url = parsed.href;
+    }
+  } catch {}
+  return url.length > MAX_URL_LENGTH ? url.slice(0, MAX_URL_LENGTH) : url;
+}
+
+// The active tab's URL and name, or null before the tab strip exists.
+function currentPage() {
+  try {
+    const tab = gBrowser.selectedTab;
+    const spec = gBrowser.currentURI && gBrowser.currentURI.spec;
+    if (!tab || !spec) {
+      return null;
+    }
+    return { url: cleanUrl(spec), title: String(tab.label || "") };
+  } catch {
+    return null;
+  }
+}
+
+// Keep the running visit in step with the active tab: a new URL closes the
+// visit and opens another; a new title (pages retitle as they load, or on a
+// notification count) just updates it. Sampled from the tick rather than wired
+// to tab and location events — a second of slack is the log's granularity
+// anyway, and it sidesteps Zen's per-space tab switching entirely. Only ever
+// runs inside a session, so visits nest cleanly in sessions.
+function trackVisit(at) {
+  if (!logPages || !openSession) {
+    return;
+  }
+  const page = currentPage();
+  if (!page) {
+    return;
+  }
+  if (openVisit && openVisit.url !== page.url) {
+    endVisit(at);
+  }
+  if (openVisit) {
+    openVisit.title = page.title;
+    openVisit.end = at;
+  } else {
+    openVisit = {
+      id: newSessionId(),
+      uuid: openSession.uuid,
+      url: page.url,
+      title: page.title,
+      start: at,
+      end: at,
+    };
+  }
+}
+
+// Close the running visit at `at`. Sub-second ones are dropped at flush time
+// (after their entry in the open-visits pref is cleared), not here.
+function endVisit(at) {
+  if (!openVisit) {
+    return;
+  }
+  const visit = openVisit;
+  openVisit = null;
+  visit.end = Math.max(visit.start, at);
+  pendingVisits.push(visit);
+}
+
+function readOpenVisits() {
+  try {
+    const raw = Services.prefs.getStringPref(PREF_OPEN_VISITS, "");
+    const list = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(list)) {
+      return [];
+    }
+    return list.filter(
+      (item) =>
+        item &&
+        typeof item.id === "string" &&
+        typeof item.url === "string" &&
+        Number.isFinite(item.start) &&
+        Number.isFinite(item.end),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writeOpenVisits(list) {
+  try {
+    Services.prefs.setStringPref(PREF_OPEN_VISITS, JSON.stringify(list));
+  } catch {}
+}
+
+// Any change tells the page to re-read the files; the value itself is noise.
+function bumpVisitsVersion() {
+  try {
+    const n = Services.prefs.getIntPref(PREF_VISITS_VERSION, 0);
+    Services.prefs.setIntPref(PREF_VISITS_VERSION, n >= 1e9 ? 1 : n + 1);
+  } catch {}
+}
+
+// Append closed visits to their day's file, one JSON object per line. The
+// day is the one the visit started on; the page re-buckets on read, so a
+// later change to the day-start hour can't lose any. IOUtils runs its work
+// on one serial background queue, so appends from several windows don't
+// interleave inside a line.
+function appendVisits(visits) {
+  const byDay = new Map();
+  for (const visit of visits) {
+    const key = dayKeyFor(visit.start);
+    if (!byDay.has(key)) {
+      byDay.set(key, []);
+    }
+    byDay.get(key).push(JSON.stringify(visit));
+  }
+  visitsWriteQueue = visitsWriteQueue
+    .then(() => IOUtils.makeDirectory(visitsDir(), { ignoreExisting: true }))
+    .then(async () => {
+      for (const [key, lines] of byDay) {
+        await IOUtils.writeUTF8(visitFile(key), lines.join("\n") + "\n", {
+          mode: "appendOrCreate",
+        });
+      }
+    })
+    .then(bumpVisitsVersion)
+    .catch((e) => {
+      console.error("[focus-space] could not write the page log:", e);
+    });
+}
+
+// The visit counterpart of flushSessions: upsert the running visit into the
+// open-visits pref, drop the ones we closed from it (and hand them to the
+// files), and close out entries left by a window that went away without
+// flushing (crash, kill) where their last flush left them.
+function flushVisits() {
+  const stored = readOpenVisits();
+  if (!openVisit && !pendingVisits.length && !stored.length) {
+    return;
+  }
+  const now = Date.now();
+  const byId = new Map(stored.map((visit) => [visit.id, visit]));
+  for (const visit of pendingVisits) {
+    byId.delete(visit.id);
+  }
+  const orphaned = [];
+  for (const visit of byId.values()) {
+    const ours = openVisit && visit.id === openVisit.id;
+    if (!ours && now - visit.end > STALE_OPEN_MS) {
+      orphaned.push(visit);
+      byId.delete(visit.id);
+    }
+  }
+  if (openVisit) {
+    byId.set(openVisit.id, { ...openVisit });
+  }
+  const next = [...byId.values()];
+  if (next.length || stored.length) {
+    writeOpenVisits(next);
+  }
+  const closed = [...pendingVisits, ...orphaned].filter(
+    (visit) => visit.end - visit.start >= 1000,
+  );
+  pendingVisits = [];
+  if (closed.length) {
+    appendVisits(closed);
+  }
+}
+
+// Retention for the page log: whole day files past the cutoff are deleted.
+// Cheap enough to run at startup and on every rollover.
+async function pruneVisitFiles() {
+  let children;
+  try {
+    children = await IOUtils.getChildren(visitsDir(), { ignoreAbsent: true });
+  } catch {
+    return;
+  }
+  const cutoff = cutoffKey();
+  let removed = false;
+  for (const path of children) {
+    const match = /^(\d{4}-\d{2}-\d{2})\.jsonl$/.exec(PathUtils.filename(path));
+    if (match && match[1] < cutoff) {
+      try {
+        await IOUtils.remove(path);
+        removed = true;
+      } catch {}
+    }
+  }
+  if (removed) {
+    bumpVisitsVersion();
+  }
+}
+
+function onLogPagesChanged() {
+  logPages = readLogPagesPref();
+  const now = Date.now();
+  if (logPages) {
+    trackVisit(now);
+  } else {
+    endVisit(now);
+    flushVisits();
+  }
 }
 
 // Apply an edit to the store: flush first so everything this window knows is
@@ -552,6 +814,7 @@ function rolloverIfNeeded() {
   }
   flush();
   currentDayKey = key;
+  pruneVisitFiles();
 }
 
 // The shared 1s tick: advances the visible stopwatch AND the running session's
@@ -572,6 +835,7 @@ function startInterval() {
     renderTime();
     if (openSession) {
       openSession.end = now;
+      trackVisit(now);
     }
     renderBar();
   }, 1000);
@@ -1275,6 +1539,17 @@ function ensureSessionsPanel() {
     "Export JSON",
   );
   jsonBtn.addEventListener("click", () => exportSessions("json"));
+  // The page log is only shown on the full page (it needs the room, and the
+  // pagination); from here it's one click away.
+  const pagesBtn = el(
+    "button",
+    { class: "zen-fs-btn", type: "button", title: "Open the page log in a tab" },
+    "Pages",
+  );
+  pagesBtn.addEventListener("click", () => {
+    closeSessionsPanel();
+    openSessionsPage("pages");
+  });
   const closeBtn = el(
     "button",
     { class: "zen-fs-btn zen-fs-close", type: "button", title: "Close" },
@@ -1291,6 +1566,7 @@ function ensureSessionsPanel() {
     addBtn,
     csvBtn,
     jsonBtn,
+    pagesBtn,
     closeBtn,
   );
   const columns = el(
@@ -1500,13 +1776,21 @@ function openSessions() {
     openSessionsPanel();
     return;
   }
+  openSessionsPage("sessions");
+}
+
+// Open (or switch to) the sessions page on `view` ("sessions" or "pages"),
+// which the page reads from the URL fragment. An already-open page is reused
+// and just has its fragment replaced, which it picks up as a hashchange.
+function openSessionsPage(view) {
   // Flush first so the page sees everything this window knows about.
   flush();
   try {
     // A chrome:// document in a tab runs privileged in the parent process,
     // which is what lets the page work on the prefs and spaces directly.
-    window.switchToTabHavingURI(SESSIONS_PAGE_URL, true, {
+    window.switchToTabHavingURI(`${SESSIONS_PAGE_URL}#${view}`, true, {
       triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
+      ignoreFragment: "whenComparingAndReplace",
     });
   } catch (e) {
     console.error("[focus-space] could not open the sessions page:", e);
@@ -1810,6 +2094,7 @@ const PREF_OBSERVERS = [
   [PREF_STOPWATCH_MODE, onStopwatchModeChanged],
   [PREF_PLACEMENT, applyPlacement],
   [PREF_PAUSE_ON_BLUR, onPauseOnBlurChanged],
+  [PREF_LOG_PAGES, onLogPagesChanged],
 ];
 
 // --- activation + startup ----------------------------------------------------
@@ -1970,12 +2255,14 @@ startupFinish(() => {
   stopwatchMode = readStopwatchModePref();
   applyPlacement();
   pauseOnBlur = readPauseOnBlurPref();
+  logPages = readLogPagesPref();
   dayStartHour = readDayStartHour();
   viewPeriod = readViewPref();
   updateWeekStart();
   migrateLegacyData();
   sessions = readSessions();
   currentDayKey = todayKey();
+  pruneVisitFiles();
 
   gZenWorkspaces.addChangeListeners(onWorkspaceChange);
 

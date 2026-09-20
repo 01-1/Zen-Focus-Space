@@ -109,9 +109,106 @@ input[type="text"][invalid] {
   border-color: #d84a3a;
 }
 
+/* Sessions / Pages tabs: the same pill look as the period toggle, set apart
+   by a hairline so they read as a different axis. */
+.views {
+  display: flex;
+  gap: 2px;
+  padding-inline-end: 10px;
+  margin-inline-end: 4px;
+  border-inline-end: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.views button,
+.groupings button {
+  background: transparent;
+  opacity: 0.7;
+}
+
+.views button:hover,
+.groupings button:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  opacity: 1;
+}
+
+.views button[active],
+.groupings button[active] {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  opacity: 1;
+  font-weight: 600;
+}
+
+input[type="search"] {
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  width: 14em;
+}
+
+input[type="search"]:focus {
+  outline: none;
+  border-color: SelectedItem;
+}
+
+.subhead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  min-height: 24px;
+}
+
 .summary {
-  margin: 14px 0 0;
+  margin: 0;
   opacity: 0.65;
+  flex: 1;
+}
+
+.groupings {
+  display: flex;
+  gap: 2px;
+}
+
+.groupings button {
+  font-size: 12px;
+}
+
+.notice {
+  margin: 14px 0 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #ef9f27 18%, transparent);
+}
+
+/* Page controls above and below the list. */
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  opacity: 0.8;
+}
+
+.pager .range {
+  font-variant-numeric: tabular-nums;
+  min-width: 10em;
+  text-align: center;
+}
+
+.pager button {
+  padding: 2px 9px;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.pager button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+#pager-bottom {
+  margin-top: 16px;
 }
 
 /* One session per row: swatch+space · start → end · length · delete. */
@@ -174,6 +271,102 @@ input[type="text"][invalid] {
 .del:disabled {
   opacity: 0.15;
   cursor: default;
+}
+
+/* --- Pages view rows --------------------------------------------------------
+   swatch+favicon+title/url · start → end · length · visit count · delete. */
+.vrow {
+  grid-template-columns: minmax(220px, 1fr) auto auto auto 6em 5.5em auto;
+  padding-block: 4px;
+}
+
+.vrow[running] {
+  opacity: 0.6;
+}
+
+.page {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.favicon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+}
+
+.page-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.title,
+.url,
+.sub-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.title {
+  color: inherit;
+  text-decoration: none;
+}
+
+a.title:hover {
+  text-decoration: underline;
+}
+
+.url {
+  font-size: 11px;
+  opacity: 0.55;
+}
+
+.time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* "3 visits" toggle for rows that fold several visits together. */
+.chip {
+  padding: 1px 7px;
+  font-size: 11px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.chip[open] {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  opacity: 1;
+}
+
+/* An expanded row's individual visits, indented under it. */
+.sub {
+  grid-template-columns: minmax(220px, 1fr) auto auto auto 6em 5.5em auto;
+  padding-block: 2px;
+  margin-inline-start: 24px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.sub[running] {
+  opacity: 0.5;
+}
+
+.sub-title {
+  opacity: 0.7;
+  padding-inline-start: 8px;
+}
+
+.flat {
+  margin-top: 10px;
 }
 
 .empty {
