@@ -1033,6 +1033,14 @@ startupFinish(() => {
   }
   removeOwnElements();
   window[INSTANCE_KEY] = { teardown };
+  // Sine's own hook for this: it runs the callback before re-importing the
+  // script on a rebuild (toggle, update) and on window unload. Registered as
+  // well as the handle above, since the handle also covers loaders without it.
+  if (typeof window.addUnloadListener === "function") {
+    try {
+      window.addUnloadListener(teardown);
+    } catch {}
+  }
 
   showBar = readShowPref();
   dayStartHour = readDayStartHour();
