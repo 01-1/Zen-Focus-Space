@@ -82,6 +82,9 @@ const FALLBACK_PALETTE = [
 // its teardown under this window property and, on startup, tears down whatever
 // run came before it, so exactly one stopwatch owns the indicator at a time.
 const INSTANCE_KEY = "__zenFocusSpaceInstance";
+// Logged at startup so the Browser Console shows which build is running.
+// Keep in step with theme.json's "version".
+const MOD_VERSION = "1.2.1";
 
 // --- session stopwatch state -------------------------------------------------
 let timerInterval = null;
@@ -1872,4 +1875,5 @@ startupFinish(() => {
     window.addEventListener(type, onWindowInteraction, true);
   }
   window.addEventListener("unload", teardown, { once: true });
+  console.info(`[focus-space] v${MOD_VERSION} ready`);
 });
